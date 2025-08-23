@@ -1,0 +1,24 @@
+# Dockerfile.cpu
+# Minimal CPU-only image
+FROM python:3.11-slim
+
+# System deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git build-essential wget curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy only requirements first for layer caching
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# NOTE: For CPU use of torch-geometric, you still need torch-scatter/cluster/spline-conv wheels.
+# The meta-package `torch-geometric` will fetch them where possible for CPU.
+# If you face issues, install from source wheels per PyG docs.
+
+# Copy the rest
+COPY . .
+
+ENV PYTHONUNBUFFERED=1
+CMD ["python", "scripts/train_level1.py", "--config", "config/train.yaml"]

@@ -1,0 +1,41 @@
+# Dockerfile.gpu
+# NVIDIA CUDA base (runtime). Adjust CUDA version if needed.
+# This example targets CUDA 12.1. Use the torch/PyG wheels that match.
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+
+# System deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip python3-venv git build-essential wget curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Make python default
+RUN ln -s /usr/bin/python3 /usr/bin/python && ln -s /usr/bin/pip3 /usr/bin/pip
+
+WORKDIR /app
+
+# Optional: set versions as build args so you can control them at build time
+ARG TORCH_VER=2.3.1
+ARG CUDA_TAG=cu121
+# PyG extras (scatter, sparse, cluster, geometric) will be pulled via pip wheels
+# matching your Torch/CUDA combo.
+
+# Install torch with CUDA
+RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/${CUDA_TAG} \
+    torch==${TORCH_VER}+${CUDA_TAG} torchvision==0.18.1+${CUDA_TAG} torchaudio==2.3.1+${CUDA_TAG}
+
+# Install PyG and other deps
+# The torch-geometric meta-package installs the right sub-wheels for scatter/sparse/cluster/spline-conv.
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest
+COPY . .
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Expose project dir as volume for logs/checkpoints if you like
+VOLUME ["/app/outputs"]
+
+# Default command (can be overridden)
+CMD ["python", "scripts/train_level1.py", "--config", "config/train.yaml"]
