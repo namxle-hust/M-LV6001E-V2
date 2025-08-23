@@ -103,7 +103,15 @@ class Level1Trainer:
             data = data.to(self.device)
             if train:
                 self.optim.zero_grad()
-            node_embeds = self.encoder(data.x_dict, data.edge_index_dict, None)
+            edge_index_dict = {}
+            for rel in data.edge_types:
+                if hasattr(data[rel], "edge_index"):
+                    ei = data[rel].edge_index
+                    # keep only relations with at least one edge
+                    if ei is not None and ei.numel() > 0:
+                        edge_index_dict[rel] = ei
+
+            node_embeds = self.encoder(data.x_dict, edge_index_dict, None)
             feat_out = self.decoders(node_embeds, data)
             feat_losses = recon_feature_loss(feat_out, data.x_dict, data.batch_dict)
             edge_losses = edge_recon_losses(node_embeds, data, use_mlp=False)

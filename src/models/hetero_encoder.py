@@ -68,15 +68,19 @@ class HeteroGNN(nn.Module):
     def forward(self, x_dict, edge_index_dict, edge_weight_dict=None):
         self._reset_input_if_needed(x_dict)
         h = {nt: self.in_projs[nt](x) for nt, x in x_dict.items()}
-        for l, conv in enumerate(self.layers):
-            h = conv(h, edge_index_dict)
-            h = {
-                nt: (
-                    torch.relu(self.norms[l][nt](v))
-                    if self.layernorm
-                    else torch.relu(v)
-                )
-                for nt, v in h.items()
-            }
-            h = {nt: self.dropout(v) for nt, v in h.items()}
+
+        # NEW: only run message passing if we actually have relations
+        if edge_index_dict:  # non-empty dict
+            for l, conv in enumerate(self.layers):
+                h = conv(h, edge_index_dict)
+                h = {
+                    nt: (
+                        torch.relu(self.norms[l][nt](v))
+                        if self.layernorm
+                        else torch.relu(v)
+                    )
+                    for nt, v in h.items()
+                }
+                h = {nt: self.dropout(v) for nt, v in h.items()}
+
         return {nt: self.out_proj[nt](v) for nt, v in h.items()}
