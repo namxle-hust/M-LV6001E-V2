@@ -1,0 +1,65 @@
+# Model-specific configuration
+# This file can be used to experiment with different architectures
+
+# Small model for testing
+small:
+  hidden_dim: 64
+  num_layers: 2
+  num_heads: 2
+  dropout: 0.1
+  pooling_type: 'mean'
+  attention_hidden: 32
+
+# Medium model (default)
+medium:
+  hidden_dim: 256
+  num_layers: 3
+  num_heads: 4
+  dropout: 0.2
+  pooling_type: 'attention'
+  attention_hidden: 128
+
+# Large model for better performance
+large:
+  hidden_dim: 512
+  num_layers: 4
+  num_heads: 8
+  dropout: 0.3
+  pooling_type: 'attention'
+  attention_hidden: 256
+
+# Extra large model
+xlarge:
+  hidden_dim: 1024
+  num_layers: 5
+  num_heads: 16
+  dropout: 0.3
+  pooling_type: 'attention'
+  attention_hidden: 512
+
+# Experimental configurations
+experimental:
+  # Deep model
+  deep:
+    hidden_dim: 256
+    num_layers: 6
+    num_heads: 4
+    dropout: 0.4
+    layer_norm: true
+    residual: true
+
+  # Wide model
+  wide:
+    hidden_dim: 768
+    num_layers: 2
+    num_heads: 12
+    dropout: 0.2
+
+  # Attention-focused
+  attention_heavy:
+    hidden_dim: 256
+    num_layers: 3
+    num_heads: 8
+    concat_heads: true
+    attention_hidden: 256
+    attention_dropout: 0.2

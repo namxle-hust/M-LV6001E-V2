@@ -56,11 +56,13 @@ project/
 ### Feature Files (TSV format)
 
 All feature files should be tab-separated with:
+
 - **Rows**: Features (genes, CpG sites, miRNAs)
 - **Columns**: Patient IDs
 - **Values**: Normalized and imputed expression values
 
 Example `genes.tsv`:
+
 ```
         Patient1    Patient2    Patient3
 GENE1   0.523       -0.234      1.234
@@ -70,11 +72,13 @@ GENE2   -0.123      0.456       0.789
 ### Edge Files (CSV format)
 
 Edge files define relationships between nodes:
+
 - **Column 1**: Source node ID
-- **Column 2**: Target node ID  
+- **Column 2**: Target node ID
 - **Column 3** (optional): Edge weight
 
 Example `gene_cpg.csv`:
+
 ```
 cpg_id,gene_id,weight
 cg12345,GENE1,1.0
@@ -84,6 +88,7 @@ cg67890,GENE2,0.8
 ### Sample File
 
 `samples.txt` contains one patient ID per line:
+
 ```
 Patient1
 Patient2
@@ -97,24 +102,24 @@ Key configuration parameters in `config/default.yaml`:
 ```yaml
 # Model architecture
 model:
-  hidden_dim: 256          # Hidden dimension size
-  num_layers: 3            # Number of GNN layers
-  num_heads: 4             # Attention heads
-  pooling_type: "mean"     # mean or attention
-  
+  hidden_dim: 256 # Hidden dimension size
+  num_layers: 3 # Number of GNN layers
+  num_heads: 4 # Attention heads
+  pooling_type: 'mean' # mean or attention
+
 # Training
 training:
   batch_size: 8
   num_epochs: 200
   learning_rate: 0.001
-  pretrain_epochs: 50      # Stage A epochs
-  
+  pretrain_epochs: 50 # Stage A epochs
+
 # Loss weights
 losses:
-  feature_recon: 1.0       # Feature reconstruction
-  edge_recon: 1.0          # Edge reconstruction
-  consistency: 0.5         # Consistency loss
-  entropy_reg: 0.1         # Entropy regularization
+  feature_recon: 1.0 # Feature reconstruction
+  edge_recon: 1.0 # Edge reconstruction
+  consistency: 0.5 # Consistency loss
+  entropy_reg: 0.1 # Entropy regularization
 ```
 
 ## Training
@@ -141,7 +146,8 @@ python scripts/train_level1.py \
 
 The training follows a two-stage protocol:
 
-1. **Stage A (Pretraining)**: 
+1. **Stage A (Pretraining)**:
+
    - Trains encoder and decoders with reconstruction losses only
    - Runs for `pretrain_epochs` epochs
    - Establishes good feature representations
@@ -163,6 +169,7 @@ python scripts/eval_level1.py \
 ```
 
 This will report:
+
 - Feature reconstruction MSE per node type
 - Edge prediction AUROC/AUPRC per relation
 - Attention weight statistics
@@ -172,13 +179,16 @@ This will report:
 After training, the following files are saved:
 
 ### Checkpoints
+
 - `outputs/checkpoints/level1_best.pt`: Best model checkpoint
 
 ### Embeddings
+
 - `outputs/tensors/patient_embeddings.pt`: Final patient representations (h_i)
 - `outputs/tensors/modality_embeddings.pt`: Per-modality vectors (z_i^m)
 
 ### Attention Weights
+
 - `outputs/tensors/attention_weights.csv`: Attention weights per patient and modality
 
 ## Loading Saved Embeddings
@@ -224,6 +234,7 @@ tensorboard --logdir outputs/logs/
 ```
 
 This shows:
+
 - Training/validation losses
 - Learning rate schedule
 - Gradient norms
@@ -232,17 +243,20 @@ This shows:
 ## Troubleshooting
 
 ### Out of Memory
+
 - Reduce `batch_size` in config
 - Reduce `hidden_dim` or `num_layers`
 - Use gradient accumulation
 
 ### Poor Convergence
+
 - Adjust learning rate
 - Modify loss weights
 - Increase `pretrain_epochs`
 - Check data normalization
 
 ### Missing Data
+
 - Ensure all patients in `samples.txt` have features
 - Missing values are automatically imputed with 0
 - Check edge files for valid node IDs
@@ -250,6 +264,7 @@ This shows:
 ## Citation
 
 If you use this code, please cite:
+
 ```
 [Your citation here]
 ```
