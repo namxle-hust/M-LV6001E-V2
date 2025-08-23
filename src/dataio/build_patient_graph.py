@@ -1,5 +1,6 @@
 from __future__ import annotations
-import numpy as np, torch
+import numpy as np
+import torch
 from torch_geometric.data import HeteroData
 
 
@@ -41,7 +42,6 @@ def build_patient_hetero_graph(
             src_idx = [0]
             dst_idx = [0]
             w = [0.0]
-        import torch
 
         data[(src, rel, dst)].edge_index = torch.tensor(
             [src_idx, dst_idx], dtype=torch.long
