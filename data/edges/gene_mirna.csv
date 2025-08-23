@@ -1,0 +1,4 @@
+mirna_id,gene_id,weight
+hsa-miR-21,ENSG00001,1.0
+hsa-miR-34a,ENSG00003,0.7
+hsa-miR-155,ENSG00005,1.0
