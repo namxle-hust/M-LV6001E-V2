@@ -1,0 +1,54 @@
+seed: 1337
+device: auto
+data:
+  root: ./data
+  features_dir: ./data/features
+  edges_dir: ./data/edges
+  genes_expr_tsv: genes_expr.tsv
+  genes_cnv_tsv: genes_cnv.tsv
+  cpgs_tsv: cpgs.tsv
+  mirnas_tsv: mirnas.tsv
+  samples_txt: samples.txt
+  gene_cpg_csv: gene_cpg.csv
+  gene_mirna_csv: gene_mirna.csv
+  gene_gene_csv: gene_gene.csv
+  add_ppi: false
+model:
+  hidden_dim: 64
+  out_dim: 64
+  num_layers: 2
+  dropout: 0.1
+  layernorm: true
+  conv: gatv2
+  heads: 2
+pooling:
+  type: mean
+  attn_hidden: 64
+modalities:
+  dim: 64
+  names: [mRNA, CNV, DNAmeth, miRNA]
+loss:
+  recon_eta: 1.0
+  alpha_consistency: 1.0
+  beta_entropy: 0.05
+  gamma_contractive: 0.0
+  lambda:
+    mRNA: 1.0
+    CNV: 1.0
+    DNAmeth: 1.0
+    miRNA: 1.0
+train:
+  stage: both
+  batch_size: 8
+  max_epochs_stageA: 2
+  max_epochs_stageB: 2
+  lr: 0.001
+  weight_decay: 0.0
+  patience: 3
+  num_workers: 0
+  val_split: 0.2
+  shuffle_patients: true
+export:
+  out_dir: ./outputs
+  save_best: true
+  save_attention_csv: true
