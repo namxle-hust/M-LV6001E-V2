@@ -1,9 +1,6 @@
 # src/train/trainer.py
 from __future__ import annotations
-import os
-import random
-import yaml
-import torch
+import os, random, torch
 from torch_geometric.loader import DataLoader
 
 from ..utils.seed import set_seed
@@ -113,14 +110,18 @@ class Level1Trainer:
 
     def _build_safe_edge_index_dict(self, data) -> dict:
         """
-        Return a dict mapping each relation to a valid edge_index tensor.
-        If a relation has 0 edges, return an empty LongTensor of shape [2, 0].
-        This keeps HeteroConv/GAT layers from receiving None.
+        Return a dict mapping EACH relation the model was built with
+        (self.encoder.edge_types) to an edge_index tensor.
+        If a relation has 0 edges in this batch, return an empty [2, 0] tensor.
         """
         device = next(iter(data.x_dict.values())).device
         edge_index_dict = {}
-        for rel in data.edge_types:
-            ei = getattr(data[rel], "edge_index", None)
+        for rel in self.encoder.edge_types:  # <-- use model metadata, not batch subset
+            ei = (
+                getattr(data[rel], "edge_index", None)
+                if rel in data.edge_types
+                else None
+            )
             if ei is None or ei.numel() == 0:
                 ei = torch.empty((2, 0), dtype=torch.long, device=device)
             else:
@@ -142,13 +143,13 @@ class Level1Trainer:
             if train:
                 self.optim.zero_grad()
 
-            # --- Safe edge dict (handles zero-edge batches) ---
+            # Safe edge dict (handles zero-edge relations)
             edge_index_dict = self._build_safe_edge_index_dict(data)
 
             # Encode
             node_embeds = self.encoder(data.x_dict, edge_index_dict, None)
 
-            # Feature recon (per node type, with gene split to mRNA/CNV)
+            # Feature recon (per node type; gene split mRNA/CNV)
             feat_out = self.decoders(node_embeds, data)
             feat_losses = recon_feature_loss(feat_out, data.x_dict, data.batch_dict)
 
@@ -163,7 +164,7 @@ class Level1Trainer:
                 elif rel == ("mirna", "targets", "gene"):
                     rel_to_mod[str(rel)] = "miRNA"
                 else:
-                    rel_to_mod[str(rel)] = "mRNA"  # default map others to gene/mRNA
+                    rel_to_mod[str(rel)] = "mRNA"
 
             L_recon = 0.0
             per_mod = {
@@ -181,9 +182,9 @@ class Level1Trainer:
                         tied = tied + l
                 L_recon = L_recon + self.lmbd[m] * (loss_m + self.eta * tied)
 
-            # Stage B parts (always enabled here)
-            modality_vecs = self.pooler(node_embeds, data.batch_dict)  # z^(m)
-            h, alpha, names = self.attn(modality_vecs)  # fused
+            # Stage B parts
+            modality_vecs = self.pooler(node_embeds, data.batch_dict)
+            h, alpha, names = self.attn(modality_vecs)
             L_cons = consistency_loss(h, modality_vecs)
             L_ent = attention_entropy(alpha)
 
@@ -193,7 +194,6 @@ class Level1Trainer:
                 L_total.backward()
                 self.optim.step()
 
-            # Logging accumulators
             sums["L_total"] += float(L_total.item())
             sums["L_recon"] += float(L_recon.item())
             sums["L_cons"] += float(L_cons.item())
@@ -207,7 +207,7 @@ class Level1Trainer:
     def fit(self):
         results = {}
 
-        # Stage A (pretrain recon only) — optional if you want to split stages.
+        # Stage A
         for epoch in range(1, self.cfg["train"]["max_epochs_stageA"] + 1):
             tr = self._epoch(self.train_loader, True)
             self.log.log({"epoch": epoch, "split": "train-A", **tr})
@@ -215,7 +215,7 @@ class Level1Trainer:
             self.log.log({"epoch": epoch, "split": "val-A", **va})
         results["stageA_last"] = va
 
-        # Stage B (fusion)
+        # Stage B
         for epoch in range(1, self.cfg["train"]["max_epochs_stageB"] + 1):
             tr = self._epoch(self.train_loader, True)
             self.log.log({"epoch": epoch, "split": "train-B", **tr})
@@ -223,13 +223,10 @@ class Level1Trainer:
             self.log.log({"epoch": epoch, "split": "val-B", **va})
         results["stageB_last"] = va
 
-        # Optional: export embeddings at the end
         self.export_embeddings()
-
         return results
 
     def export_embeddings(self):
-        """Export patient embeddings, modality embeddings, and attention weights."""
         out_dir = self.cfg["export"]["out_dir"]
         os.makedirs(out_dir + "/tensors", exist_ok=True)
 
@@ -242,12 +239,9 @@ class Level1Trainer:
         all_z = {"mRNA": [], "CNV": [], "DNAmeth": [], "miRNA": []}
 
         with torch.no_grad():
-            for data in self.val_loader:  # use whole dataset loader for convenience
+            for data in self.val_loader:
                 data = data.to(self.device)
-
-                # Safe edge dict for export as well
                 edge_index_dict = self._build_safe_edge_index_dict(data)
-
                 node_embeds = self.encoder(data.x_dict, edge_index_dict, None)
                 modality_vecs = self.pooler(node_embeds, data.batch_dict)
                 h, alpha, names = self.attn(modality_vecs)
@@ -265,5 +259,6 @@ class Level1Trainer:
         import pandas as pd
 
         A = torch.cat(all_alpha, dim=0).numpy()
-        df = pd.DataFrame(A, columns=["mRNA", "CNV", "DNAmeth", "miRNA"])
-        df.to_csv(out_dir + "/tensors/attention_weights.csv", index=False)
+        pd.DataFrame(A, columns=["mRNA", "CNV", "DNAmeth", "miRNA"]).to_csv(
+            out_dir + "/tensors/attention_weights.csv", index=False
+        )
