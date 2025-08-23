@@ -1,0 +1,104 @@
+# Default configuration for multi-omics GNN
+project_name: "multiomics_gnn"
+seed: 42
+device: "cuda"
+deterministic: true
+
+# Data paths
+data:
+  features_dir: "data/features/"
+  edges_dir: "data/edges/"
+  samples_file: "data/features/samples.txt"
+  
+  # Feature files
+  genes_file: "genes.tsv"
+  cpgs_file: "cpgs.tsv"
+  mirnas_file: "mirnas.tsv"
+  
+  # Edge files
+  gene_cpg_file: "gene_cpg.csv"
+  gene_mirna_file: "gene_mirna.csv"
+  gene_gene_file: "gene_gene.csv"  # optional
+  
+  # Edge settings
+  use_ppi_edges: false
+  default_edge_weight: 1.0
+
+# Model architecture
+model:
+  hidden_dim: 256
+  num_layers: 3
+  dropout: 0.2
+  layer_norm: true
+  
+  # HeteroGAT settings
+  num_heads: 4
+  concat_heads: false
+  
+  # Pooling
+  pooling_type: "mean"  # mean or attention
+  
+  # Modality attention
+  attention_hidden: 128
+  attention_dropout: 0.1
+
+# Loss weights
+losses:
+  feature_recon: 1.0
+  edge_recon: 1.0
+  consistency: 0.5
+  entropy_reg: 0.1
+  contrastive: 0.0  # optional
+  
+  # Per-modality weights (inverse of node counts)
+  modality_weights:
+    mRNA: 1.0
+    CNV: 1.0
+    DNAmeth: 1.0
+    miRNA: 1.0
+
+# Training
+training:
+  batch_size: 8
+  num_epochs: 200
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  
+  # Two-stage training
+  pretrain_epochs: 50
+  
+  # Learning rate schedule
+  scheduler: "reduce_on_plateau"
+  patience: 10
+  factor: 0.5
+  
+  # Negative sampling
+  neg_sample_ratio: 5
+  
+  # Validation
+  val_split: 0.2
+  val_frequency: 1
+  
+  # Early stopping
+  early_stopping_patience: 20
+  min_delta: 0.0001
+
+# Logging
+logging:
+  log_dir: "outputs/logs/"
+  log_frequency: 10
+  save_attention_weights: true
+  save_embeddings: true
+  
+# Checkpointing
+checkpoint:
+  save_dir: "outputs/checkpoints/"
+  save_best_only: true
+  save_frequency: 10
+
+# Output paths
+outputs:
+  checkpoint_path: "outputs/checkpoints/level1_best.pt"
+  embeddings_path: "outputs/tensors/patient_embeddings.pt"
+  modality_embeddings_path: "outputs/tensors/modality_embeddings.pt"
+  attention_weights_path: "outputs/tensors/attention_weights.csv"
