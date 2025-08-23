@@ -3,10 +3,7 @@
 ```bash
 docker build -f Dockerfile.cpu -t level1-gnn:cpu .
 
-docker run --rm -it \
- -v "$(pwd)/outputs:/app/outputs" \
-  -v "$(pwd)/data:/app/data" \
- level1-gnn:cpu bash
+docker run --rm -it -v "$(pwd):/app" level1-gnn:cpu bash
 ```
 
 ```bash

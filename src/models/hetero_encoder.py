@@ -5,7 +5,12 @@ from torch_geometric.nn import HeteroConv, GATv2Conv, SAGEConv, GraphConv
 
 def _make_conv(conv_name: str, in_ch: int, out_ch: int, heads: int = 1):
     if conv_name == "gatv2":
-        return GATv2Conv(in_ch, out_ch // heads, heads=heads, add_self_loops=False)
+        return GATv2Conv(
+            in_ch,
+            out_ch // heads if heads > 1 else out_ch,
+            heads=heads,
+            add_self_loops=False,
+        )
     if conv_name == "sage":
         return SAGEConv(in_ch, out_ch)
     return GraphConv(in_ch, out_ch)
@@ -25,13 +30,16 @@ class HeteroGNN(nn.Module):
     ):
         super().__init__()
         self.node_types, self.edge_types = metadata
-        self.layers = nn.ModuleList()
-        self.norms = nn.ModuleList()
-        self.input_adapters = nn.ModuleDict()
+        self.hidden_dim, self.out_dim = hidden_dim, out_dim
         self.dropout = nn.Dropout(dropout)
         self.layernorm = layernorm
-        for ntype in self.node_types:
-            self.input_adapters[ntype] = nn.Identity()
+
+        # lazy per-type adapters: input_dim -> hidden_dim
+        self.in_projs = nn.ModuleDict({nt: nn.Identity() for nt in self.node_types})
+
+        # GNN layers on hidden_dim
+        self.layers = nn.ModuleList()
+        self.norms = nn.ModuleList()
         for _ in range(num_layers):
             convs = {
                 (src, rel, dst): _make_conv(conv, hidden_dim, hidden_dim, heads=heads)
@@ -41,25 +49,24 @@ class HeteroGNN(nn.Module):
             self.norms.append(
                 nn.ModuleDict({nt: nn.LayerNorm(hidden_dim) for nt in self.node_types})
             )
-        self.in_projs = nn.ModuleDict(
-            {nt: nn.Linear(-1, hidden_dim, bias=False) for nt in self.node_types}
-        )  # reset at runtime
+
         self.out_proj = nn.ModuleDict(
             {nt: nn.Linear(hidden_dim, out_dim) for nt in self.node_types}
         )
 
-    def _reset_input(self, x_dict):
+    def _reset_input_if_needed(self, x_dict):
         for nt, x in x_dict.items():
-            if isinstance(self.in_projs[nt], nn.Linear) and getattr(
-                self.in_projs[nt], "in_features", -1
-            ) == x.size(-1):
+            mod = self.in_projs[nt]
+            if (
+                isinstance(mod, nn.Linear)
+                and mod.in_features == x.size(-1)
+                and mod.out_features == self.hidden_dim
+            ):
                 continue
-            self.in_projs[nt] = nn.Linear(
-                x.size(-1), self.out_proj[nt].in_features, bias=False
-            )
+            self.in_projs[nt] = nn.Linear(x.size(-1), self.hidden_dim, bias=False)
 
     def forward(self, x_dict, edge_index_dict, edge_weight_dict=None):
-        self._reset_input(x_dict)
+        self._reset_input_if_needed(x_dict)
         h = {nt: self.in_projs[nt](x) for nt, x in x_dict.items()}
         for l, conv in enumerate(self.layers):
             h = conv(h, edge_index_dict)
@@ -72,5 +79,4 @@ class HeteroGNN(nn.Module):
                 for nt, v in h.items()
             }
             h = {nt: self.dropout(v) for nt, v in h.items()}
-        out = {nt: self.out_proj[nt](v) for nt, v in h.items()}
-        return out
+        return {nt: self.out_proj[nt](v) for nt, v in h.items()}
