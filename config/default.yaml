@@ -1,0 +1,155 @@
+# Default configuration for multi-modal heterogeneous GNN
+
+# Data paths
+data:
+  features_dir: 'data/features/'
+  edges_dir: 'data/edges/'
+  samples_file: 'data/features/samples.txt'
+
+  # Feature files
+  gene_expr_file: 'genes_expr.tsv'
+  gene_cnv_file: 'genes_cnv.tsv'
+  cpg_file: 'cpgs.tsv'
+  mirna_file: 'mirnas.tsv'
+
+  # Edge files
+  gene_cpg_file: 'gene_cpg.csv'
+  gene_mirna_file: 'gene_mirna.csv'
+  gene_gene_file: 'gene_gene.csv' # Optional PPI
+
+  # Processing
+  use_ppi: false
+  default_edge_weight: 1.0
+
+# Model architecture
+model:
+  encoder:
+    type: 'HeteroGAT' # Options: HeteroGAT, HeteroRGCN
+    hidden_size: 256
+    num_layers: 3
+    dropout: 0.2
+    use_layer_norm: true
+    use_residual: true
+
+  pooling:
+    type: 'mean' # Options: mean, attention
+
+  attention:
+    hidden_size: 128
+    num_heads: 1
+    temperature: 1.0
+    dropout: 0.1
+
+  decoders:
+    gene_decoder:
+      hidden_sizes: [128, 64]
+      dropout: 0.1
+    cpg_decoder:
+      hidden_sizes: [128]
+      dropout: 0.1
+    mirna_decoder:
+      hidden_sizes: [128]
+      dropout: 0.1
+
+# Loss weights
+losses:
+  # Reconstruction losses
+  lambda_recon_mrna: 1.0
+  lambda_recon_cnv: 1.0
+  lambda_recon_cpg: 1.0
+  lambda_recon_mirna: 1.0
+
+  # Edge reconstruction
+  lambda_edge: 0.5
+  neg_sampling_ratio: 5
+
+  # Modality weighting (auto-computed if null)
+  modality_weights:
+    mRNA: null
+    CNV: null
+    DNAmeth: null
+    miRNA: null
+
+  # Consistency loss
+  lambda_cons: 0.1
+
+  # Entropy regularization
+  lambda_ent: 0.01
+
+  # Contrastive regularization (optional)
+  lambda_contractive: 0.0
+  use_contractive: false
+
+# Training parameters
+training:
+  batch_size: 32
+  num_workers: 4
+  pin_memory: true
+
+  # Stage A: Pretrain
+  stage_a:
+    epochs: 100
+    learning_rate: 0.001
+    weight_decay: 1e-5
+    scheduler: 'plateau' # Options: plateau, cosine, step
+    patience: 15
+
+  # Stage B: Fusion
+  stage_b:
+    epochs: 100
+    learning_rate: 0.0001
+    weight_decay: 1e-5
+    scheduler: 'plateau'
+    patience: 15
+
+  # General
+  grad_clip: 1.0
+  early_stopping_patience: 20
+  validation_split: 0.2
+
+# Logging and outputs
+logging:
+  log_dir: 'outputs/logs/'
+  checkpoint_dir: 'outputs/checkpoints/'
+  tensors_dir: 'outputs/tensors/'
+
+  log_interval: 10 # Log every N batches
+  save_interval: 20 # Save checkpoint every N epochs
+  save_best_only: true
+  verbose: true
+
+  # Metrics to track
+  track_metrics:
+    - 'total_loss'
+    - 'recon_loss'
+    - 'edge_loss'
+    - 'cons_loss'
+    - 'ent_loss'
+
+  # Gradient tracking
+  track_gradients: true
+  grad_histogram_interval: 50
+
+# Reproducibility
+seed: 42
+deterministic: true
+cuda_deterministic: false # Set true for exact reproducibility (slower)
+
+# Hardware
+device: 'cuda' # Options: cuda, cpu, auto
+mixed_precision: false # Use AMP for faster training
+
+# Evaluation
+eval:
+  metrics:
+    - 'mse'
+    - 'mae'
+    - 'auroc'
+    - 'auprc'
+
+  # Reconstruction MSE thresholds
+  mse_threshold: 0.1
+
+  # Attention analysis
+  save_attention_weights: true
+  plot_attention_heatmap: true

@@ -1,0 +1,113 @@
+version: '3.8'
+
+services:
+  # GPU version of the container
+  multimodal-gnn-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DEVICE_TYPE: gpu
+    image: multimodal-gnn:gpu
+    container_name: multimodal-gnn-gpu
+    runtime: nvidia  # Required for GPU support
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - CUDA_VISIBLE_DEVICES=0
+      - PYTHONPATH=/workspace/multimodal_gnn
+      - WANDB_API_KEY=${WANDB_API_KEY}  # Optional: for Weights & Biases logging
+    volumes:
+      # Mount data directory
+      - ./data:/workspace/multimodal_gnn/data
+      # Mount outputs directory to persist results
+      - ./outputs:/workspace/multimodal_gnn/outputs
+      # Mount config directory for easy config editing
+      - ./config:/workspace/multimodal_gnn/config
+      # Mount source code for development (optional, comment out for production)
+      - ./src:/workspace/multimodal_gnn/src
+      - ./scripts:/workspace/multimodal_gnn/scripts
+    ports:
+      - "8888:8888"  # Jupyter Lab
+      - "6006:6006"  # TensorBoard
+    shm_size: '16gb'  # Shared memory for DataLoader workers
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - multimodal-net
+    stdin_open: true
+    tty: true
+
+  # CPU version of the container
+  multimodal-gnn-cpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DEVICE_TYPE: cpu
+    image: multimodal-gnn:cpu
+    container_name: multimodal-gnn-cpu
+    environment:
+      - PYTHONPATH=/workspace/multimodal_gnn
+      - WANDB_API_KEY=${WANDB_API_KEY}
+    volumes:
+      - ./data:/workspace/multimodal_gnn/data
+      - ./outputs:/workspace/multimodal_gnn/outputs
+      - ./config:/workspace/multimodal_gnn/config
+      - ./src:/workspace/multimodal_gnn/src
+      - ./scripts:/workspace/multimodal_gnn/scripts
+    ports:
+      - "8889:8888"  # Jupyter Lab (different port)
+      - "6007:6006"  # TensorBoard (different port)
+    shm_size: '8gb'
+    networks:
+      - multimodal-net
+    stdin_open: true
+    tty: true
+
+  # TensorBoard service
+  tensorboard:
+    image: tensorflow/tensorflow:latest
+    container_name: multimodal-tensorboard
+    command: tensorboard --logdir=/logs --host=0.0.0.0 --port=6006
+    volumes:
+      - ./outputs/logs:/logs:ro
+    ports:
+      - "6008:6006"
+    networks:
+      - multimodal-net
+    restart: unless-stopped
+
+  # Optional: Jupyter Lab standalone service
+  jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DEVICE_TYPE: gpu
+    image: multimodal-gnn:gpu
+    container_name: multimodal-jupyter
+    runtime: nvidia
+    command: jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token='' --NotebookApp.password=''
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - PYTHONPATH=/workspace/multimodal_gnn
+    volumes:
+      - ./:/workspace/multimodal_gnn
+      - jupyter-data:/root/.jupyter
+    ports:
+      - "8890:8888"
+    networks:
+      - multimodal-net
+    restart: unless-stopped
+
+networks:
+  multimodal-net:
+    driver: bridge
+
+volumes:
+  jupyter-data:
