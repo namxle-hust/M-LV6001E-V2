@@ -1,13 +1,13 @@
 # Multi-stage build for efficient image size
 # Stage 1: Base image with CUDA support (for GPU)
-FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 AS base_gpu
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 AS base-gpu
 
 # Stage 2: CPU-only base
-FROM ubuntu:22.04 AS base_cpu
+FROM ubuntu:22.04 AS base-cpu
 
 # Select base image based on build argument
 ARG DEVICE_TYPE=gpu
-FROM base_${DEVICE_TYPE} AS final-base
+FROM "base-${DEVICE_TYPE}" AS final-base
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
