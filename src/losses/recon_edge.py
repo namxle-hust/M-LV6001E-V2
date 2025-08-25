@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.utils import negative_sampling
 from typing import Dict, Tuple, Optional
-
+import numpy as np
 
 class EdgeDecoder(nn.Module):
     """Decoder for edge prediction between node pairs."""
