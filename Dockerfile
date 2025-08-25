@@ -102,9 +102,20 @@ USER root
 RUN ln -sf /usr/bin/python3 /usr/bin/python
 USER appuser
 
-# Set up entrypoint script with better error handling
+# Set up entrypoint script with better error handling and directory creation
 RUN echo '#!/bin/bash\n\
     set -e  # Exit on error\n\
+    \n\
+    # Function to ensure output directories exist with proper permissions\n\
+    setup_directories() {\n\
+    echo "Setting up output directories..."\n\
+    mkdir -p outputs/{checkpoints,logs,tensors,evaluation}\n\
+    mkdir -p data/{features,edges}\n\
+    \n\
+    # Try to fix permissions if possible\n\
+    chmod -R 755 outputs/ 2>/dev/null || echo "Warning: Could not modify permissions for outputs/"\n\
+    chmod -R 755 data/ 2>/dev/null || echo "Warning: Could not modify permissions for data/"\n\
+    }\n\
     \n\
     show_usage() {\n\
     echo "Usage: docker run <image> [train|eval|jupyter|bash] [options]"\n\
@@ -113,6 +124,9 @@ RUN echo '#!/bin/bash\n\
     echo "  jupyter: Start Jupyter Lab server"\n\
     echo "  bash: Start interactive bash shell"\n\
     }\n\
+    \n\
+    # Always setup directories before running commands\n\
+    setup_directories\n\
     \n\
     case "$1" in\n\
     train)\n\
