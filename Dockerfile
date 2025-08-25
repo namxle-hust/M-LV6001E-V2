@@ -21,11 +21,13 @@ ENV TORCH_HOME=/workspace/.cache/torch
 ARG CUDA_VISIBLE_DEVICES=""
 ENV CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}
 
-# Install system dependencies
+# Install system dependencies including numpy
 RUN apt-get update && apt-get install -y \
     python3.10 \
     python3.10-dev \
     python3-pip \
+    python3-numpy \
+    python3-scipy \
     git \
     wget \
     curl \
