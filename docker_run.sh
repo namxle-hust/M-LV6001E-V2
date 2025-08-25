@@ -50,23 +50,75 @@ check_nvidia_docker() {
 setup_directories() {
     print_info "Setting up host directories..."
     
-    # Create directories if they don't exist
-    mkdir -p data/{features,edges}
-    mkdir -p outputs/{checkpoints,logs,tensors,evaluation}
-    mkdir -p config
+    local dirs_to_create=(
+        "data/features"
+        "data/edges" 
+        "outputs/checkpoints"
+        "outputs/logs"
+        "outputs/tensors"
+        "outputs/evaluation"
+        "config"
+    )
     
-    # Set appropriate permissions
-    chmod -R 755 data/ outputs/ config/ 2>/dev/null || {
-        print_warning "Could not set permissions. You might need sudo access."
-        print_info "If you encounter permission errors, run: sudo chmod -R 755 data/ outputs/ config/"
-    }
+    local needs_sudo=false
+    local failed_dirs=()
     
-    # Try to fix ownership to current user
-    if command -v id &> /dev/null; then
-        chown -R $(id -u):$(id -g) data/ outputs/ config/ 2>/dev/null || {
-            print_warning "Could not change ownership. This might cause permission issues."
-            print_info "If needed, run: sudo chown -R \$(id -u):\$(id -g) data/ outputs/ config/"
+    # Try to create directories normally first
+    for dir in "${dirs_to_create[@]}"; do
+        if ! mkdir -p "$dir" 2>/dev/null; then
+            failed_dirs+=("$dir")
+            needs_sudo=true
+        fi
+    done
+    
+    # If some directories failed, check if it's a permission issue
+    if [ "$needs_sudo" = true ]; then
+        print_warning "Some directories couldn't be created due to permissions:"
+        for dir in "${failed_dirs[@]}"; do
+            echo "  - $dir"
+        done
+        
+        print_info "This usually happens when directories were created by Docker as root."
+        print_info "Attempting to fix with sudo..."
+        
+        # Try to fix with sudo
+        if command -v sudo &> /dev/null; then
+            # First, try to create missing directories with sudo
+            for dir in "${failed_dirs[@]}"; do
+                sudo mkdir -p "$dir" 2>/dev/null || true
+            done
+            
+            # Then fix ownership of all directories
+            if sudo chown -R $(id -u):$(id -g) data/ outputs/ config/ 2>/dev/null; then
+                print_info "✓ Fixed directory ownership with sudo"
+                
+                # Set appropriate permissions
+                sudo chmod -R 755 data/ outputs/ config/ 2>/dev/null && {
+                    print_info "✓ Set directory permissions"
+                } || {
+                    print_warning "Could not set permissions, but ownership is fixed"
+                }
+            else
+                print_error "Failed to fix directory ownership even with sudo"
+                print_info "Manual fix required. Run these commands:"
+                echo "  sudo chown -R \$(id -u):\$(id -g) data/ outputs/ config/"
+                echo "  sudo chmod -R 755 data/ outputs/ config/"
+                exit 1
+            fi
+        else
+            print_error "sudo not available. Please manually fix directory permissions:"
+            echo "  mkdir -p data/{features,edges} outputs/{checkpoints,logs,tensors,evaluation} config"
+            echo "  # If directories exist but owned by root:"
+            echo "  sudo chown -R \$(id -u):\$(id -g) data/ outputs/ config/"
+            echo "  sudo chmod -R 755 data/ outputs/ config/"
+            exit 1
+        fi
+    else
+        # All directories created successfully, set permissions
+        chmod -R 755 data/ outputs/ config/ 2>/dev/null || {
+            print_warning "Could not set permissions, but directories were created"
         }
+        print_info "✓ All directories created successfully"
     fi
 }
 
