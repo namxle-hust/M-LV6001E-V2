@@ -1,4 +1,7 @@
 # Multi-stage build for efficient image size
+# Define device type argument globally (must be before FROM instructions)
+ARG DEVICE_TYPE=gpu
+
 # Stage 1: Base image with CUDA support (for GPU)
 FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 AS base-gpu
 
@@ -6,8 +9,7 @@ FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 AS base-gpu
 FROM ubuntu:22.04 AS base-cpu
 
 # Select base image based on build argument
-ARG DEVICE_TYPE=gpu
-FROM "base-${DEVICE_TYPE}" AS final-base
+FROM base-${DEVICE_TYPE} AS final-base
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
@@ -59,7 +61,7 @@ RUN python3 -m pip install --user --upgrade pip setuptools wheel
 # Add user pip bin to PATH
 ENV PATH="/home/appuser/.local/bin:${PATH}"
 
-# Install PyTorch (conditional based on device type)
+# Re-declare ARG for this stage (required for multi-stage builds)
 ARG DEVICE_TYPE=gpu
 RUN if [ "$DEVICE_TYPE" = "gpu" ]; then \
     pip3 install --user torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu118; \
@@ -68,6 +70,8 @@ RUN if [ "$DEVICE_TYPE" = "gpu" ]; then \
     fi
 
 # Install PyTorch Geometric conditionally based on device type
+# Re-declare ARG for this section
+ARG DEVICE_TYPE=gpu
 RUN if [ "$DEVICE_TYPE" = "gpu" ]; then \
     pip3 install --user torch-scatter torch-sparse -f https://data.pyg.org/whl/torch-2.1.0+cu118.html && \
     pip3 install --user torch-cluster torch-spline-conv -f https://data.pyg.org/whl/torch-2.1.0+cu118.html; \
@@ -151,6 +155,7 @@ ENTRYPOINT ["/workspace/entrypoint.sh"]
 CMD ["bash"]
 
 # Add labels for better container management
+ARG DEVICE_TYPE=gpu
 LABEL maintainer="your-email@example.com" \
     version="1.0" \
     description="Multimodal GNN training environment" \
