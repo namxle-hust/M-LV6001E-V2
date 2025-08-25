@@ -136,7 +136,7 @@ deterministic: true
 cuda_deterministic: false # Set true for exact reproducibility (slower)
 
 # Hardware
-device: 'cuda' # Options: cuda, cpu, auto
+device: 'auto' # Options: cuda, cpu, auto
 mixed_precision: false # Use AMP for faster training
 
 # Evaluation
