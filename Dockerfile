@@ -14,7 +14,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV TORCH_HOME=/workspace/.cache/torch
-ENV CUDA_VISIBLE_DEVICES=0
+
+# Make CUDA_VISIBLE_DEVICES configurable (default to all GPUs)
+ARG CUDA_VISIBLE_DEVICES=""
+ENV CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -32,34 +35,54 @@ RUN apt-get update && apt-get install -y \
     libxslt1-dev \
     zlib1g-dev \
     libgomp1 \
+    sudo \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Create workspace
+# Create non-root user for security
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+RUN groupadd -g ${GROUP_ID} appuser && \
+    useradd -u ${USER_ID} -g ${GROUP_ID} -m -s /bin/bash appuser && \
+    echo "appuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Create workspace and set permissions
+RUN mkdir -p /workspace && chown -R appuser:appuser /workspace
 WORKDIR /workspace
 
-# Upgrade pip and install build tools
-RUN python3 -m pip install --upgrade pip setuptools wheel
+# Switch to non-root user
+USER appuser
 
-# Install PyTorch (with CUDA 11.8 support for GPU, CPU version for CPU)
+# Upgrade pip and install build tools
+RUN python3 -m pip install --user --upgrade pip setuptools wheel
+
+# Add user pip bin to PATH
+ENV PATH="/home/appuser/.local/bin:${PATH}"
+
+# Install PyTorch (conditional based on device type)
 ARG DEVICE_TYPE=gpu
 RUN if [ "$DEVICE_TYPE" = "gpu" ]; then \
-    pip3 install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu118; \
+    pip3 install --user torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu118; \
     else \
-    pip3 install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cpu; \
+    pip3 install --user torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cpu; \
     fi
 
-# Install PyTorch Geometric and dependencies
-RUN pip3 install torch-scatter torch-sparse -f https://data.pyg.org/whl/torch-2.1.0+cu118.html && \
-    pip3 install torch-cluster torch-spline-conv -f https://data.pyg.org/whl/torch-2.1.0+cu118.html && \
-    pip3 install torch-geometric
+# Install PyTorch Geometric conditionally based on device type
+RUN if [ "$DEVICE_TYPE" = "gpu" ]; then \
+    pip3 install --user torch-scatter torch-sparse -f https://data.pyg.org/whl/torch-2.1.0+cu118.html && \
+    pip3 install --user torch-cluster torch-spline-conv -f https://data.pyg.org/whl/torch-2.1.0+cu118.html; \
+    else \
+    pip3 install --user torch-scatter torch-sparse -f https://data.pyg.org/whl/torch-2.1.0+cpu.html && \
+    pip3 install --user torch-cluster torch-spline-conv -f https://data.pyg.org/whl/torch-2.1.0+cpu.html; \
+    fi && \
+    pip3 install --user torch-geometric
 
-# Install other Python dependencies
+# Copy requirements first for better layer caching
 COPY requirements.txt /workspace/requirements.txt
-RUN pip3 install -r requirements.txt
+RUN pip3 install --user -r requirements.txt
 
 # Copy project files
-COPY . /workspace/multimodal_gnn/
+COPY --chown=appuser:appuser . /workspace/multimodal_gnn/
 
 # Set working directory to project root
 WORKDIR /workspace/multimodal_gnn
@@ -70,28 +93,55 @@ RUN mkdir -p data/features data/edges \
     outputs/evaluation
 
 # Create symbolic link for python3
+USER root
 RUN ln -sf /usr/bin/python3 /usr/bin/python
+USER appuser
 
-# Set up entrypoint script
+# Set up entrypoint script with better error handling
 RUN echo '#!/bin/bash\n\
-    if [ "$1" = "train" ]; then\n\
-    echo "Starting training..."\n\
-    python scripts/train_level1.py --config config/default.yaml "${@:2}"\n\
-    elif [ "$1" = "eval" ]; then\n\
-    echo "Starting evaluation..."\n\
-    python scripts/eval_level1.py "${@:2}"\n\
-    elif [ "$1" = "jupyter" ]; then\n\
-    echo "Starting Jupyter Lab..."\n\
-    jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root\n\
-    elif [ "$1" = "bash" ]; then\n\
-    /bin/bash\n\
-    else\n\
+    set -e  # Exit on error\n\
+    \n\
+    show_usage() {\n\
     echo "Usage: docker run <image> [train|eval|jupyter|bash] [options]"\n\
     echo "  train: Run training script"\n\
     echo "  eval: Run evaluation script"\n\
     echo "  jupyter: Start Jupyter Lab server"\n\
     echo "  bash: Start interactive bash shell"\n\
-    fi' > /workspace/entrypoint.sh && chmod +x /workspace/entrypoint.sh
+    }\n\
+    \n\
+    case "$1" in\n\
+    train)\n\
+    echo "Starting training..."\n\
+    exec python scripts/train_level1.py --config config/default.yaml "${@:2}"\n\
+    ;;\n\
+    eval)\n\
+    echo "Starting evaluation..."\n\
+    exec python scripts/eval_level1.py "${@:2}"\n\
+    ;;\n\
+    jupyter)\n\
+    echo "Starting Jupyter Lab..."\n\
+    # More secure jupyter configuration\n\
+    exec jupyter lab --ip=0.0.0.0 --port=8888 --no-browser \\\n\
+    --ServerApp.token="" --ServerApp.password="" \\\n\
+    --ServerApp.allow_origin="*" --ServerApp.disable_check_xsrf=True\n\
+    ;;\n\
+    bash)\n\
+    exec /bin/bash\n\
+    ;;\n\
+    "")\n\
+    echo "No command specified. Starting bash shell."\n\
+    exec /bin/bash\n\
+    ;;\n\
+    *)\n\
+    echo "Unknown command: $1"\n\
+    show_usage\n\
+    exit 1\n\
+    ;;\n\
+    esac' > /workspace/entrypoint.sh && chmod +x /workspace/entrypoint.sh
+
+# Add health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import torch; import torch_geometric; print('Health check passed')" || exit 1
 
 # Expose ports for Jupyter and Tensorboard
 EXPOSE 8888 6006
@@ -99,3 +149,9 @@ EXPOSE 8888 6006
 # Set entrypoint
 ENTRYPOINT ["/workspace/entrypoint.sh"]
 CMD ["bash"]
+
+# Add labels for better container management
+LABEL maintainer="your-email@example.com" \
+    version="1.0" \
+    description="Multimodal GNN training environment" \
+    device_type="${DEVICE_TYPE}"
