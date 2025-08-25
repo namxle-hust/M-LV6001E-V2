@@ -5,7 +5,7 @@ PyTorch Geometric dataset for patient graphs.
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch_geometric.data import HeteroData, Batch
-from typing import List, Dict, Optional, Callable
+from typing import List, Dict, Optional, Callable, Tuple
 import numpy as np
 
 
@@ -127,7 +127,7 @@ class MultiModalDataModule:
         self.val_dataset = PatientGraphDataset(self.val_graphs)
         self.test_dataset = PatientGraphDataset(self.test_graphs)
 
-    def _split_data(self) -> tuple:
+    def _split_data(self) -> Tuple:
         """Split data into train/val/test sets."""
         n_total = len(self.all_graphs)
         val_split = self.config["training"].get("validation_split", 0.2)

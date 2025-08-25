@@ -5,7 +5,7 @@ Feature reconstruction loss for node embeddings.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 
 class FeatureDecoder(nn.Module):
@@ -189,7 +189,7 @@ class FeatureReconstructionLoss(nn.Module):
         reconstructed: Dict[str, torch.Tensor],
         original: Dict[str, torch.Tensor],
         num_nodes: Optional[Dict[str, int]] = None,
-    ) -> tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
         Compute reconstruction loss.
 
