@@ -107,6 +107,11 @@ training:
   early_stopping_patience: 20
   validation_split: 0.2
 
+  kfold:
+    enabled: false
+    n_folds: 5
+    stratified: false 
+
 # Logging and outputs
 logging:
   log_dir: 'outputs/logs/'
@@ -153,3 +158,9 @@ eval:
   # Attention analysis
   save_attention_weights: true
   plot_attention_heatmap: true
+
+# Cross-validation settings
+cross_validation:
+  enabled: false # Set to true to enable k-fold CV
+  n_folds: 5
+  save_fold_embeddings: false # Save embeddings for each fold

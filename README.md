@@ -252,6 +252,17 @@ attention_weights = pd.read_csv('outputs/tensors/attention_weights.csv')
 4. **Entropy Regularization**: Prevent attention collapse
 5. **Contrastive Regularization**: Optional robustness term
 
+## K-Fold Cross-Validation
+
+### Running K-fold training
+
+````bash
+# Run 5-fold cross-validation
+python scripts/train_level1.py --config config/default.yaml --kfold 5
+
+# Run 10-fold cross-validation
+python scripts/train_level1.py --config config/default.yaml --kfold 10
+
 ## Requirements
 
 - Python 3.10+
@@ -269,7 +280,7 @@ attention_weights = pd.read_csv('outputs/tensors/attention_weights.csv')
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 pip install torch-geometric
 pip install pandas numpy scikit-learn pyyaml tqdm
-```
+````
 
 ## Notes
 

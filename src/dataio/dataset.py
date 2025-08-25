@@ -22,6 +22,8 @@ class PatientGraphDataset(Dataset):
         """
         self.graphs = graphs
         self.transform = transform
+        self.kfold_splits = None
+        self.current_fold = None
 
     def __len__(self) -> int:
         return len(self.graphs)
@@ -33,6 +35,30 @@ class PatientGraphDataset(Dataset):
             graph = self.transform(graph)
 
         return graph
+
+    def setup_kfold(self, n_folds: int = 5):
+        """Setup K-fold cross-validation splits."""
+        from ..utils.kfold import create_kfold_splits
+
+        n_total = len(self.all_graphs)
+        self.kfold_splits = create_kfold_splits(n_total, n_folds, self.seed)
+        print(f"Created {n_folds}-fold splits with {n_total} samples")
+
+    def set_fold(self, fold_idx: int):
+        """Set current fold for training."""
+        if self.kfold_splits is None:
+            raise ValueError("Must call setup_kfold first")
+
+        train_idx, val_idx = self.kfold_splits[fold_idx]
+        self.train_graphs = [self.all_graphs[i] for i in train_idx]
+        self.val_graphs = [self.all_graphs[i] for i in val_idx]
+
+        # Update datasets
+        self.train_dataset = PatientGraphDataset(self.train_graphs)
+        self.val_dataset = PatientGraphDataset(self.val_graphs)
+
+        self.current_fold = fold_idx
+        print(f"Fold {fold_idx}: train={len(train_idx)}, val={len(val_idx)}")
 
     def get_patient_id(self, idx: int) -> str:
         """Get patient ID for a given index."""
