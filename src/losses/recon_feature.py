@@ -189,7 +189,7 @@ class FeatureReconstructionLoss(nn.Module):
         reconstructed: Dict[str, torch.Tensor],
         original: Dict[str, torch.Tensor],
         num_nodes: Optional[Dict[str, int]] = None,
-    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    ) -> tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
         Compute reconstruction loss.
 
