@@ -330,7 +330,7 @@ def main():
     test_loader = data_module.test_dataloader()
 
     # Create model
-    print("Creating model...")
+    print(f"Creating model for device: {device}...")
     model = MultiModalGNNWithDecoders(config).to(device)
 
     # Count parameters
