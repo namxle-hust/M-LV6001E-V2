@@ -91,10 +91,11 @@ COPY --chown=appuser:appuser . /workspace/multimodal_gnn/
 # Set working directory to project root
 WORKDIR /workspace/multimodal_gnn
 
-# Create necessary directories
+# Create necessary directories with proper permissions
 RUN mkdir -p data/features data/edges \
     outputs/checkpoints outputs/logs outputs/tensors \
-    outputs/evaluation
+    outputs/evaluation && \
+    chown -R appuser:appuser data outputs
 
 # Create symbolic link for python3
 USER root
