@@ -60,65 +60,54 @@ setup_directories() {
         "config"
     )
     
-    local needs_sudo=false
     local failed_dirs=()
     
-    # Try to create directories normally first
+    # Try to create directories
     for dir in "${dirs_to_create[@]}"; do
         if ! mkdir -p "$dir" 2>/dev/null; then
             failed_dirs+=("$dir")
-            needs_sudo=true
         fi
     done
     
-    # If some directories failed, check if it's a permission issue
-    if [ "$needs_sudo" = true ]; then
-        print_warning "Some directories couldn't be created due to permissions:"
+    # If some directories failed, provide manual instructions
+    if [ ${#failed_dirs[@]} -gt 0 ]; then
+        print_error "Could not create some directories due to permissions:"
         for dir in "${failed_dirs[@]}"; do
             echo "  - $dir"
         done
         
         print_info "This usually happens when directories were created by Docker as root."
-        print_info "Attempting to fix with sudo..."
+        print_info "Manual fix options:"
+        echo ""
+        echo "Option 1 - Fix existing directories:"
+        echo "  sudo chown -R \$(id -u):\$(id -g) data/ outputs/ config/"
+        echo "  sudo chmod -R 755 data/ outputs/ config/"
+        echo ""
+        echo "Option 2 - Remove and recreate (will delete existing data):"
+        echo "  sudo rm -rf outputs/ data/ config/"
+        echo "  mkdir -p data/{features,edges} outputs/{checkpoints,logs,tensors,evaluation} config"
+        echo ""
+        echo "Option 3 - Run without volume mounts (data stays in container):"
+        echo "  Use: $0 [command] --no-volumes [other-args]"
+        echo ""
         
-        # Try to fix with sudo
-        if command -v sudo &> /dev/null; then
-            # First, try to create missing directories with sudo
-            for dir in "${failed_dirs[@]}"; do
-                sudo mkdir -p "$dir" 2>/dev/null || true
-            done
-            
-            # Then fix ownership of all directories
-            if sudo chown -R $(id -u):$(id -g) data/ outputs/ config/ 2>/dev/null; then
-                print_info "✓ Fixed directory ownership with sudo"
-                
-                # Set appropriate permissions
-                sudo chmod -R 755 data/ outputs/ config/ 2>/dev/null && {
-                    print_info "✓ Set directory permissions"
-                } || {
-                    print_warning "Could not set permissions, but ownership is fixed"
-                }
-            else
-                print_error "Failed to fix directory ownership even with sudo"
-                print_info "Manual fix required. Run these commands:"
-                echo "  sudo chown -R \$(id -u):\$(id -g) data/ outputs/ config/"
-                echo "  sudo chmod -R 755 data/ outputs/ config/"
-                exit 1
-            fi
-        else
-            print_error "sudo not available. Please manually fix directory permissions:"
-            echo "  mkdir -p data/{features,edges} outputs/{checkpoints,logs,tensors,evaluation} config"
-            echo "  # If directories exist but owned by root:"
-            echo "  sudo chown -R \$(id -u):\$(id -g) data/ outputs/ config/"
-            echo "  sudo chmod -R 755 data/ outputs/ config/"
+        # Ask user what they want to do
+        read -p "Continue anyway? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_info "Exiting. Please fix directory permissions first."
             exit 1
         fi
+        
+        print_warning "Continuing with existing permissions. You may encounter issues."
     else
-        # All directories created successfully, set permissions
-        chmod -R 755 data/ outputs/ config/ 2>/dev/null || {
-            print_warning "Could not set permissions, but directories were created"
-        }
-        print_info "✓ All directories created successfully"
+        # All directories created successfully, set permissions if possible
+        if chmod -R 755 data/ outputs/ config/ 2>/dev/null; then
+            print_info "✓ All directories created successfully with proper permissions"
+        else
+            print_info "✓ All directories created successfully"
+            print_warning "Could not set optimal permissions, but should work"
+        fi
     fi
 }
 
