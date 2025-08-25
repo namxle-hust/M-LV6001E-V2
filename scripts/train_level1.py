@@ -540,7 +540,7 @@ def main():
     parser.add_argument(
         "--kfold",
         type=int,
-        default=0,
+        default=5,
         help="Number of folds for cross-validation (0=no k-fold)",
     )
 
