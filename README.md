@@ -254,14 +254,17 @@ attention_weights = pd.read_csv('outputs/tensors/attention_weights.csv')
 
 ## K-Fold Cross-Validation
 
-### Running K-fold training
+The framework supports K-fold cross-validation for robust evaluation.
 
-````bash
-# Run 5-fold cross-validation
+### Running K-fold Training
+
+```bash
+# 5-fold cross-validation
 python scripts/train_level1.py --config config/default.yaml --kfold 5
 
-# Run 10-fold cross-validation
+# 10-fold cross-validation
 python scripts/train_level1.py --config config/default.yaml --kfold 10
+```
 
 ## Requirements
 
@@ -280,7 +283,7 @@ python scripts/train_level1.py --config config/default.yaml --kfold 10
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 pip install torch-geometric
 pip install pandas numpy scikit-learn pyyaml tqdm
-````
+```
 
 ## Notes
 

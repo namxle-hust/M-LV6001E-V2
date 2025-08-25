@@ -17,6 +17,10 @@ from pathlib import Path
 import json
 from datetime import datetime
 
+# Add these imports at the top
+from torch.utils.data import DataLoader
+from src.dataio.dataset import PatientGraphDataset, custom_collate_fn
+
 # Add src to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -252,6 +256,136 @@ def export_embeddings(
     print(f"Embeddings exported to {output_dir}")
 
 
+def train_model(model, train_loader, val_loader, optimizer, config, device, stage="A"):
+    """Train model for one fold."""
+    best_val_loss = float("inf")
+    best_metrics = {}
+
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="min",
+        factor=0.5,
+        patience=config["training"][f"stage_{stage.lower()}"]["patience"],
+        verbose=False,
+    )
+
+    num_epochs = config["training"][f"stage_{stage.lower()}"]["epochs"]
+
+    for epoch in range(1, num_epochs + 1):
+        # Train
+        model.train()
+        train_loss = 0
+        batch_count = 0
+
+        for data in train_loader:
+            data = data.to(device)
+            optimizer.zero_grad()
+            output = model(data, compute_loss=True)
+            loss = output["losses"]["total"]
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
+            train_loss += loss.item()
+            batch_count += 1
+
+        avg_train_loss = train_loss / batch_count
+
+        # Validate
+        val_metrics = validate_epoch(model, val_loader, device, stage)
+
+        # Update scheduler
+        scheduler.step(val_metrics["loss"])
+
+        # Track best model
+        if val_metrics["loss"] < best_val_loss:
+            best_val_loss = val_metrics["loss"]
+            best_metrics = {
+                "best_train_loss": avg_train_loss,
+                "best_val_loss": val_metrics["loss"],
+                **val_metrics,
+            }
+
+    return best_metrics
+
+
+def evaluate_fold(model, dataloader, device):
+    """Evaluate model on validation fold."""
+    model.eval()
+
+    from src.losses.recon_edge import LinkPredictionMetrics
+
+    metrics = {
+        "recon_mse": {"mRNA": [], "CNV": [], "cpg": [], "mirna": []},
+        "edge_auroc": [],
+    }
+
+    with torch.no_grad():
+        for data in dataloader:
+            data = data.to(device)
+            output = model(data, compute_loss=True)
+
+            # Get reconstruction MSE from losses
+            if "recon_detail" in output["losses"]:
+                for modality in ["mrna", "cnv", "cpg", "mirna"]:
+                    if modality in output["losses"]["recon_detail"]:
+                        value = output["losses"]["recon_detail"][modality]
+                        if torch.is_tensor(value):
+                            value = value.item()
+                        mod_key = modality.upper() if modality != "mirna" else modality
+                        metrics["recon_mse"][mod_key].append(value)
+
+            # Calculate actual AUROC for edge prediction
+            edge_types = [("cpg", "maps_to", "gene"), ("mirna", "targets", "gene")]
+            for edge_type in edge_types:
+                if hasattr(data[edge_type], "edge_index"):
+                    src_type, _, dst_type = edge_type
+
+                    # Get embeddings
+                    z_src = output["node_embeddings"][src_type]
+                    z_dst = output["node_embeddings"][dst_type]
+
+                    # Get decoder
+                    decoder = model.edge_decoder.get_decoder(edge_type)
+
+                    # Positive edges
+                    edge_index = data[edge_type].edge_index
+                    if edge_index.shape[1] > 0:
+                        pos_src = z_src[edge_index[0]]
+                        pos_dst = z_dst[edge_index[1]]
+                        pos_pred = torch.sigmoid(decoder(pos_src, pos_dst))
+
+                        # Sample negative edges
+                        neg_edge_index = model.edge_decoder.sample_negative_edges(
+                            edge_index,
+                            z_src.shape[0],
+                            z_dst.shape[0],
+                            edge_index.shape[1],
+                        )
+
+                        neg_src = z_src[neg_edge_index[0]]
+                        neg_dst = z_dst[neg_edge_index[1]]
+                        neg_pred = torch.sigmoid(decoder(neg_src, neg_dst))
+
+                        # Compute AUROC
+                        auroc_metrics = LinkPredictionMetrics.compute_auc_ap(
+                            pos_pred, neg_pred
+                        )
+                        metrics["edge_auroc"].append(auroc_metrics["auroc"])
+
+    # Average all metrics
+    for modality in metrics["recon_mse"]:
+        if metrics["recon_mse"][modality]:
+            metrics["recon_mse"][modality] = np.mean(metrics["recon_mse"][modality])
+        else:
+            metrics["recon_mse"][modality] = 0.0
+
+    metrics["edge_auroc"] = (
+        np.mean(metrics["edge_auroc"]) if metrics["edge_auroc"] else 0.0
+    )
+
+    return metrics
+
+
 def train_kfold(model_class, all_graphs, config, device, k_folds=5):
     """
     Perform K-fold cross-validation.
@@ -259,8 +393,6 @@ def train_kfold(model_class, all_graphs, config, device, k_folds=5):
     Returns:
         Dictionary of averaged metrics across folds
     """
-    from src.utils.kfold import create_kfold_splits
-
     # Store metrics for each fold
     fold_metrics = {
         "train_loss": [],
@@ -288,14 +420,36 @@ def train_kfold(model_class, all_graphs, config, device, k_folds=5):
         train_loader = data_module.train_dataloader()
         val_loader = data_module.val_dataloader()
 
-        # Train model (existing training code)
-        fold_results = train_model(model, train_loader, val_loader, config, device)
+        # Stage A: Pretrain
+        print(f"Training Stage A...")
+        model.set_training_stage("A")
+        optimizer_a = optim.Adam(
+            model.parameters(),
+            lr=config["training"]["stage_a"]["learning_rate"],
+            weight_decay=config["training"]["stage_a"]["weight_decay"],
+        )
+        stage_a_results = train_model(
+            model, train_loader, val_loader, optimizer_a, config, device, "A"
+        )
+
+        # Stage B: Fusion
+        print(f"Training Stage B...")
+        model.set_training_stage("B")
+        optimizer_b = optim.Adam(
+            model.parameters(),
+            lr=config["training"]["stage_b"]["learning_rate"],
+            weight_decay=config["training"]["stage_b"]["weight_decay"],
+        )
+        stage_b_results = train_model(
+            model, train_loader, val_loader, optimizer_b, config, device, "B"
+        )
 
         # Store fold metrics
-        fold_metrics["train_loss"].append(fold_results["best_train_loss"])
-        fold_metrics["val_loss"].append(fold_results["best_val_loss"])
+        fold_metrics["train_loss"].append(stage_b_results["best_train_loss"])
+        fold_metrics["val_loss"].append(stage_b_results["best_val_loss"])
 
         # Evaluate reconstruction and edge prediction
+        print(f"Evaluating fold {fold_idx + 1}...")
         eval_metrics = evaluate_fold(model, val_loader, device)
         for modality in ["mRNA", "CNV", "cpg", "mirna"]:
             fold_metrics["recon_mse"][modality].append(
@@ -303,15 +457,18 @@ def train_kfold(model_class, all_graphs, config, device, k_folds=5):
             )
         fold_metrics["edge_auroc"].append(eval_metrics["edge_auroc"])
 
+        print(
+            f"Fold {fold_idx + 1} - Val Loss: {stage_b_results['best_val_loss']:.4f}, "
+            f"Edge AUROC: {eval_metrics['edge_auroc']:.4f}"
+        )
+
         # Save fold checkpoint
+        checkpoint_dir = os.path.join(
+            config["logging"]["checkpoint_dir"], f"fold_{fold_idx}"
+        )
+        Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
         save_checkpoint(
-            model,
-            None,
-            0,
-            "A",
-            eval_metrics,
-            config,
-            os.path.join(config["logging"]["checkpoint_dir"], f"fold_{fold_idx}"),
+            model, optimizer_b, 0, "B", eval_metrics, config, checkpoint_dir
         )
 
     # Calculate averaged metrics
@@ -334,9 +491,8 @@ def train_kfold(model_class, all_graphs, config, device, k_folds=5):
         }
 
     # Save K-fold results
-    with open(
-        os.path.join(config["logging"]["log_dir"], "kfold_results.json"), "w"
-    ) as f:
+    results_path = os.path.join(config["logging"]["log_dir"], "kfold_results.json")
+    with open(results_path, "w") as f:
         json.dump(
             {
                 "fold_metrics": fold_metrics,
@@ -356,50 +512,13 @@ def train_kfold(model_class, all_graphs, config, device, k_folds=5):
     print(
         f"Edge AUROC: {avg_metrics['edge_auroc']['mean']:.4f} ± {avg_metrics['edge_auroc']['std']:.4f}"
     )
+    print(f"\nPer-modality Reconstruction MSE:")
+    for modality in ["mRNA", "CNV", "cpg", "mirna"]:
+        mean_val = avg_metrics["recon_mse"][modality]["mean"]
+        std_val = avg_metrics["recon_mse"][modality]["std"]
+        print(f"  {modality}: {mean_val:.4f} ± {std_val:.4f}")
 
     return avg_metrics
-
-
-def evaluate_fold(model, dataloader, device):
-    """Evaluate model on validation fold."""
-    model.eval()
-
-    metrics = {
-        "recon_mse": {"mRNA": [], "CNV": [], "cpg": [], "mirna": []},
-        "edge_auroc": [],
-    }
-
-    with torch.no_grad():
-        for data in dataloader:
-            data = data.to(device)
-            output = model(data, compute_loss=True)
-
-            # Get reconstruction MSE from losses
-            if "recon_detail" in output["losses"]:
-                for modality in ["mrna", "cnv", "cpg", "mirna"]:
-                    if modality in output["losses"]["recon_detail"]:
-                        metrics["recon_mse"][
-                            modality.upper() if modality != "mirna" else modality
-                        ].append(output["losses"]["recon_detail"][modality].item())
-
-            # Edge reconstruction metrics would need to be computed here
-            # This is a simplified version - you'd need to implement proper AUROC calculation
-            if "edge_detail" in output["losses"]:
-                # Placeholder for AUROC calculation
-                metrics["edge_auroc"].append(0.8)  # Replace with actual AUROC
-
-    # Average metrics
-    for modality in metrics["recon_mse"]:
-        if metrics["recon_mse"][modality]:
-            metrics["recon_mse"][modality] = np.mean(metrics["recon_mse"][modality])
-        else:
-            metrics["recon_mse"][modality] = 0.0
-
-    metrics["edge_auroc"] = (
-        np.mean(metrics["edge_auroc"]) if metrics["edge_auroc"] else 0.0
-    )
-
-    return metrics
 
 
 def main():
@@ -477,17 +596,65 @@ def main():
     graph_builder = PatientGraphBuilder(features_dict, edges_dict)
     all_graphs = graph_builder.build_all_graphs()
 
-    # Create data module
-    data_module = MultiModalDataModule(all_graphs, config, seed=config["seed"])
+    # Check if K-fold training is requested
+    if args.kfold > 0:
+        print(f"\n=== K-FOLD CROSS-VALIDATION (K={args.kfold}) ===")
 
-    # Get dataloaders
-    train_loader = data_module.train_dataloader()
-    val_loader = data_module.val_dataloader()
-    test_loader = data_module.test_dataloader()
+        # Run K-fold cross-validation
+        kfold_results = train_kfold(
+            MultiModalGNNWithDecoders, all_graphs, config, device, k_folds=args.kfold
+        )
 
-    # Create model
-    print(f"Creating model for device: {device}...")
-    model = MultiModalGNNWithDecoders(config).to(device)
+        print("\n=== TRAINING FINAL MODEL ON ALL PATIENTS ===")
+
+        # Create fresh model for final training on all data
+        model = MultiModalGNNWithDecoders(config).to(device)
+
+        # Use all graphs for training (with small validation set)
+        n_val = min(20, len(all_graphs) // 10)  # Small validation set
+        train_graphs = all_graphs[:-n_val] if n_val > 0 else all_graphs
+        val_graphs = all_graphs[-n_val:] if n_val > 0 else all_graphs[-1:]
+
+        # Create datasets
+        train_dataset = PatientGraphDataset(train_graphs)
+        val_dataset = PatientGraphDataset(val_graphs)
+
+        # Create dataloaders
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=config["training"]["batch_size"],
+            shuffle=True,
+            num_workers=config["training"]["num_workers"],
+            pin_memory=config["training"]["pin_memory"],
+            collate_fn=custom_collate_fn,
+        )
+
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=config["training"]["batch_size"],
+            shuffle=False,
+            num_workers=config["training"]["num_workers"],
+            pin_memory=config["training"]["pin_memory"],
+            collate_fn=custom_collate_fn,
+        )
+
+        test_loader = None  # No test set when using all data
+
+    else:
+        # Standard training with train/val/test split
+        print("\n=== STANDARD TRAINING WITH TRAIN/VAL/TEST SPLIT ===")
+
+        # Create data module
+        data_module = MultiModalDataModule(all_graphs, config, seed=config["seed"])
+
+        # Get dataloaders
+        train_loader = data_module.train_dataloader()
+        val_loader = data_module.val_dataloader()
+        test_loader = data_module.test_dataloader()
+
+        # Create model
+        print(f"Creating model for device: {device}...")
+        model = MultiModalGNNWithDecoders(config).to(device)
 
     # Count parameters
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -629,27 +796,45 @@ def main():
                 print(f"Early stopping triggered at epoch {epoch}")
                 break
 
-    # Final evaluation on test set
-    print("\n=== Final Evaluation ===")
-    test_metrics = validate_epoch(model, test_loader, device, "B")
-    print(f"Test Loss: {test_metrics['loss']:.4f}")
+    # Final evaluation
+    if test_loader is not None:
+        print("\n=== Final Evaluation on Test Set ===")
+        test_metrics = validate_epoch(model, test_loader, device, "B")
+        print(f"Test Loss: {test_metrics['loss']:.4f}")
+    else:
+        print("\n=== Final Evaluation on Validation Set ===")
+        final_metrics = validate_epoch(model, val_loader, device, "B")
+        print(f"Final Loss: {final_metrics['loss']:.4f}")
 
-    # Export embeddings
-    print("\nExporting embeddings...")
-    export_embeddings(model, test_loader, device, config["logging"]["tensors_dir"])
+    # Export embeddings for ALL patients
+    print("\nExporting embeddings for all patients...")
+    all_loader = DataLoader(
+        PatientGraphDataset(all_graphs),
+        batch_size=config["training"]["batch_size"],
+        shuffle=False,
+        num_workers=config["training"]["num_workers"],
+        pin_memory=config["training"]["pin_memory"],
+        collate_fn=custom_collate_fn,
+    )
+    export_embeddings(model, all_loader, device, config["logging"]["tensors_dir"])
 
     # Save final metrics
     metrics_file = os.path.join(config["logging"]["log_dir"], "final_metrics.json")
+    final_metrics_dict = {
+        "num_parameters": num_params,
+        "config": config,
+    }
+
+    if test_loader is not None:
+        final_metrics_dict["test_metrics"] = test_metrics
+    else:
+        final_metrics_dict["final_metrics"] = final_metrics
+
+    if args.kfold > 0:
+        final_metrics_dict["kfold_results"] = kfold_results
+
     with open(metrics_file, "w") as f:
-        json.dump(
-            {
-                "test_metrics": test_metrics,
-                "num_parameters": num_params,
-                "config": config,
-            },
-            f,
-            indent=2,
-        )
+        json.dump(final_metrics_dict, f, indent=2)
 
     writer.close()
     print("\nTraining complete!")

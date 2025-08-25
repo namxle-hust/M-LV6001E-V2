@@ -82,6 +82,10 @@ losses:
 
 # Training parameters
 training:
+  validation_split: 0.2
+  test_split: 0.1
+  early_stopping_patience: 20
+  
   batch_size: 32
   num_workers: 4
   pin_memory: true
@@ -107,10 +111,10 @@ training:
   early_stopping_patience: 20
   validation_split: 0.2
 
-  kfold:
-    enabled: false
-    n_folds: 5
-    stratified: false 
+kfold:
+  enabled: false
+  n_folds: 5
+  stratified: false 
 
 # Logging and outputs
 logging:
