@@ -562,6 +562,8 @@ def main():
     # Load configuration
     config = load_config(args.config, overrides)
 
+    print(f"Args: {args}")
+
     # Set seed
     set_seed(config["seed"])
 
