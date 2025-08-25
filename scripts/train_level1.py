@@ -19,11 +19,11 @@ from datetime import datetime
 
 # Add these imports at the top
 from torch.utils.data import DataLoader
-from src.dataio.dataset import PatientGraphDataset, custom_collate_fn
 
 # Add src to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from src.dataio.dataset import PatientGraphDataset, custom_collate_fn
 from src.dataio.load_features import FeatureLoader, validate_features
 from src.dataio.load_edges import EdgeLoader, validate_edges
 from src.dataio.build_patient_graph import PatientGraphBuilder
