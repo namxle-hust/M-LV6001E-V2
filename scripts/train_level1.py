@@ -152,7 +152,7 @@ def validate_epoch(
                     )
 
     # Average losses
-    avg_loss = total_loss / batch_count
+    avg_loss = total_loss / batch_count if len(dataloader) > 0 else 0
     avg_components = {k: v / batch_count for k, v in loss_components.items()}
 
     return {"loss": avg_loss, **avg_components}
