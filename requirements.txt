@@ -1,5 +1,5 @@
-# Core scientific computing
-numpy>=1.23.0
+# Core scientific computing - FIXED: Pin NumPy to 1.x for PyTorch compatibility
+numpy>=1.21.0,<2.0
 pandas>=1.5.0
 scipy>=1.9.0
 scikit-learn>=1.2.0
