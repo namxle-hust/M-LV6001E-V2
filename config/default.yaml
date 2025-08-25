@@ -90,7 +90,7 @@ training:
   stage_a:
     epochs: 100
     learning_rate: 0.001
-    weight_decay: 1e-5
+    weight_decay: !!float 1e-5
     scheduler: 'plateau' # Options: plateau, cosine, step
     patience: 15
 
@@ -98,7 +98,7 @@ training:
   stage_b:
     epochs: 100
     learning_rate: 0.0001
-    weight_decay: 1e-5
+    weight_decay: !!float 1e-5
     scheduler: 'plateau'
     patience: 15
 
