@@ -597,65 +597,35 @@ def main():
     graph_builder = PatientGraphBuilder(features_dict, edges_dict)
     all_graphs = graph_builder.build_all_graphs()
 
-    # Check if K-fold training is requested
-    if args.kfold > 0:
-        print(f"\n=== K-FOLD CROSS-VALIDATION (K={args.kfold}) ===")
+    # K-fold training is always required
 
-        # Run K-fold cross-validation
-        kfold_results = train_kfold(
-            MultiModalGNNWithDecoders, all_graphs, config, device, k_folds=args.kfold
-        )
+    print(f"\n=== K-FOLD CROSS-VALIDATION (K={args.kfold}) ===")
 
-        print("\n=== TRAINING FINAL MODEL ON ALL PATIENTS ===")
+    # Run K-fold cross-validation
+    kfold_results = train_kfold(
+        MultiModalGNNWithDecoders, all_graphs, config, device, k_folds=args.kfold
+    )
 
-        # Create fresh model for final training on all data
-        model = MultiModalGNNWithDecoders(config).to(device)
+    print("\n=== TRAINING FINAL MODEL ON ALL PATIENTS ===")
 
-        # Use all graphs for training (with small validation set)
-        n_val = min(20, len(all_graphs) // 10)  # Small validation set
-        train_graphs = all_graphs[:-n_val] if n_val > 0 else all_graphs
-        val_graphs = all_graphs[-n_val:] if n_val > 0 else all_graphs[-1:]
+    # Create fresh model for final training on all data
+    model = MultiModalGNNWithDecoders(config).to(device)
 
-        # Create datasets
-        train_dataset = PatientGraphDataset(train_graphs)
-        val_dataset = PatientGraphDataset(val_graphs)
+    # Use all graphs for training (with small validation set)
+    train_graphs = all_graphs
 
-        # Create dataloaders
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size=config["training"]["batch_size"],
-            shuffle=True,
-            num_workers=config["training"]["num_workers"],
-            pin_memory=config["training"]["pin_memory"],
-            collate_fn=custom_collate_fn,
-        )
+    # Create datasets
+    train_dataset = PatientGraphDataset(train_graphs)
 
-        val_loader = DataLoader(
-            val_dataset,
-            batch_size=config["training"]["batch_size"],
-            shuffle=False,
-            num_workers=config["training"]["num_workers"],
-            pin_memory=config["training"]["pin_memory"],
-            collate_fn=custom_collate_fn,
-        )
-
-        test_loader = None  # No test set when using all data
-
-    else:
-        # Standard training with train/val/test split
-        print("\n=== STANDARD TRAINING WITH TRAIN/VAL/TEST SPLIT ===")
-
-        # Create data module
-        data_module = MultiModalDataModule(all_graphs, config, seed=config["seed"])
-
-        # Get dataloaders
-        train_loader = data_module.train_dataloader()
-        val_loader = data_module.val_dataloader()
-        test_loader = data_module.test_dataloader()
-
-        # Create model
-        print(f"Creating model for device: {device}...")
-        model = MultiModalGNNWithDecoders(config).to(device)
+    # Create dataloaders
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=config["training"]["batch_size"],
+        shuffle=True,
+        num_workers=config["training"]["num_workers"],
+        pin_memory=config["training"]["pin_memory"],
+        collate_fn=custom_collate_fn,
+    )
 
     # Count parameters
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -681,7 +651,7 @@ def main():
     print("\n=== Stage A: Pretraining with Reconstruction ===")
     model.set_training_stage("A")
 
-    best_val_loss = float("inf")
+    best_train_loss = float("inf")
     patience_counter = 0
 
     for epoch in range(1, config["training"]["stage_a"]["epochs"] + 1):
@@ -690,24 +660,17 @@ def main():
             model, train_loader, optimizer, device, epoch, "A", writer
         )
 
-        # Validate
-        val_metrics = validate_epoch(model, val_loader, device, "A")
-
         # Log metrics
-        print(
-            f"Epoch {epoch} - Train Loss: {train_metrics['loss']:.4f}, "
-            f"Val Loss: {val_metrics['loss']:.4f}"
-        )
+        print(f"Epoch {epoch} - Train Loss: {train_metrics['loss']:.4f}, ")
 
         writer.add_scalar("Loss/train_A", train_metrics["loss"], epoch)
-        writer.add_scalar("Loss/val_A", val_metrics["loss"], epoch)
 
         # Learning rate scheduling
-        scheduler.step(val_metrics["loss"])
+        scheduler.step(train_metrics["loss"])
 
         # Early stopping
-        if val_metrics["loss"] < best_val_loss:
-            best_val_loss = val_metrics["loss"]
+        if train_metrics["loss"] < best_train_loss:
+            best_train_loss = train_metrics["loss"]
             patience_counter = 0
 
             # Save best checkpoint
@@ -716,7 +679,7 @@ def main():
                 optimizer,
                 epoch,
                 "A",
-                val_metrics,
+                train_metrics,
                 config,
                 config["logging"]["checkpoint_dir"],
             )
@@ -745,7 +708,7 @@ def main():
         verbose=True,
     )
 
-    best_val_loss = float("inf")
+    best_train_loss = float("inf")
     patience_counter = 0
 
     for epoch in range(1, config["training"]["stage_b"]["epochs"] + 1):
@@ -754,24 +717,17 @@ def main():
             model, train_loader, optimizer, device, epoch, "B", writer
         )
 
-        # Validate
-        val_metrics = validate_epoch(model, val_loader, device, "B")
-
         # Log metrics
-        print(
-            f"Epoch {epoch} - Train Loss: {train_metrics['loss']:.4f}, "
-            f"Val Loss: {val_metrics['loss']:.4f}"
-        )
+        print(f"Epoch {epoch} - Train Loss: {train_metrics['loss']:.4f}, ")
 
         writer.add_scalar("Loss/train_B", train_metrics["loss"], epoch)
-        writer.add_scalar("Loss/val_B", val_metrics["loss"], epoch)
 
         # Learning rate scheduling
-        scheduler.step(val_metrics["loss"])
+        scheduler.step(train_metrics["loss"])
 
         # Early stopping
-        if val_metrics["loss"] < best_val_loss:
-            best_val_loss = val_metrics["loss"]
+        if train_metrics["loss"] < best_train_loss:
+            best_train_loss = train_metrics["loss"]
             patience_counter = 0
 
             # Save best checkpoint
@@ -780,7 +736,7 @@ def main():
                 optimizer,
                 epoch,
                 "B",
-                val_metrics,
+                train_metrics,
                 config,
                 config["logging"]["checkpoint_dir"],
             )
@@ -796,16 +752,6 @@ def main():
             if patience_counter >= config["training"]["early_stopping_patience"]:
                 print(f"Early stopping triggered at epoch {epoch}")
                 break
-
-    # Final evaluation
-    if test_loader is not None:
-        print("\n=== Final Evaluation on Test Set ===")
-        test_metrics = validate_epoch(model, test_loader, device, "B")
-        print(f"Test Loss: {test_metrics['loss']:.4f}")
-    else:
-        print("\n=== Final Evaluation on Validation Set ===")
-        final_metrics = validate_epoch(model, val_loader, device, "B")
-        print(f"Final Loss: {final_metrics['loss']:.4f}")
 
     # Export embeddings for ALL patients
     print("\nExporting embeddings for all patients...")
@@ -826,13 +772,7 @@ def main():
         "config": config,
     }
 
-    if test_loader is not None:
-        final_metrics_dict["test_metrics"] = test_metrics
-    else:
-        final_metrics_dict["final_metrics"] = final_metrics
-
-    if args.kfold > 0:
-        final_metrics_dict["kfold_results"] = kfold_results
+    final_metrics_dict["kfold_results"] = kfold_results
 
     with open(metrics_file, "w") as f:
         json.dump(final_metrics_dict, f, indent=2)
