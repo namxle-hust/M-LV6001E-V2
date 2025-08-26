@@ -230,6 +230,9 @@ def export_embeddings(
     # Concatenate
     patient_embeddings = torch.cat(all_patient_embeddings, dim=0)
 
+    print(f"Patient IDs:")
+    print(patient_ids)
+
     modality_embeddings = {}
     for modality in all_modality_embeddings.keys():
         modality_embeddings[modality] = torch.cat(
@@ -246,6 +249,7 @@ def export_embeddings(
     # Save attention weights as CSV
     if all_attention_weights:
         attention_weights = torch.cat(all_attention_weights, dim=0).numpy()
+        print(attention_weights.shape)
         attention_df = pd.DataFrame(
             attention_weights,
             index=patient_ids,
