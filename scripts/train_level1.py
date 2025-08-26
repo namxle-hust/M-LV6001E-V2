@@ -221,8 +221,8 @@ def export_embeddings(
                 )
 
             # Attention weights
-            if output["attention_weights"] is not None:
-                all_attention_weights.append(output["attention_weights"].cpu())
+            # if output["attention_weights"] is not None:
+            all_attention_weights.append(output["attention_weights"].cpu())
 
             # Patient IDs
             patient_ids.extend(data.patient_ids)
@@ -232,6 +232,8 @@ def export_embeddings(
 
     print(f"Patient IDs:")
     print(patient_ids)
+    print("All attention weights")
+    print(all_attention_weights)
 
     modality_embeddings = {}
     for modality in all_modality_embeddings.keys():
