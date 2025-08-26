@@ -25,7 +25,7 @@ class ModalityPooling(nn.Module):
         Args:
             hidden_size: Hidden dimension size
             pool_type: Type of pooling ('mean', 'sum', 'max', 'attention')
-            use_projection_heads: Whether to use separate projection heads for mRNA/CNV
+            use_projection_heads: Whether to use separate projection heads for mrna/cnv
         """
         super().__init__()
 
@@ -33,7 +33,7 @@ class ModalityPooling(nn.Module):
         self.pool_type = pool_type
         self.use_projection_heads = use_projection_heads
 
-        # Projection heads for splitting gene embeddings into mRNA and CNV
+        # Projection heads for splitting gene embeddings into mrna and cnv
         if use_projection_heads:
             self.mrna_projection = nn.Linear(hidden_size, hidden_size)
             self.cnv_projection = nn.Linear(hidden_size, hidden_size)
@@ -106,14 +106,14 @@ class ModalityPooling(nn.Module):
 
         Returns:
             Dictionary of modality embeddings:
-                - 'mRNA': mRNA expression embedding
-                - 'CNV': Copy number variation embedding
-                - 'DNAmeth': DNA methylation embedding
-                - 'miRNA': miRNA expression embedding
+                - 'mrna': mrna expression embedding
+                - 'cnv': Copy number variation embedding
+                - 'dnameth': DNA methylation embedding
+                - 'mirna': mirna expression embedding
         """
         modality_embeddings = {}
 
-        # Handle gene nodes (split into mRNA and CNV)
+        # Handle gene nodes (split into mrna and cnv)
         gene_emb = node_embeddings["gene"]
         gene_batch = batch_dict["gene"] if batch_dict else None
 
@@ -124,45 +124,45 @@ class ModalityPooling(nn.Module):
 
             # Pool separately
             if self.pool_type == "attention":
-                modality_embeddings["mRNA"] = self.gene_attention(mrna_emb, gene_batch)
-                modality_embeddings["CNV"] = self.gene_attention(cnv_emb, gene_batch)
+                modality_embeddings["mrna"] = self.gene_attention(mrna_emb, gene_batch)
+                modality_embeddings["cnv"] = self.gene_attention(cnv_emb, gene_batch)
             else:
-                modality_embeddings["mRNA"] = self.pool_nodes(
+                modality_embeddings["mrna"] = self.pool_nodes(
                     mrna_emb, gene_batch, self.pool_type
                 )
-                modality_embeddings["CNV"] = self.pool_nodes(
+                modality_embeddings["cnv"] = self.pool_nodes(
                     cnv_emb, gene_batch, self.pool_type
                 )
         else:
-            # Pool gene embeddings directly (combined mRNA+CNV)
+            # Pool gene embeddings directly (combined mrna+cnv)
             if self.pool_type == "attention":
                 pooled_gene = self.gene_attention(gene_emb, gene_batch)
             else:
                 pooled_gene = self.pool_nodes(gene_emb, gene_batch, self.pool_type)
 
             # Split after pooling (simpler but less flexible)
-            modality_embeddings["mRNA"] = pooled_gene
-            modality_embeddings["CNV"] = pooled_gene
+            modality_embeddings["mrna"] = pooled_gene
+            modality_embeddings["cnv"] = pooled_gene
 
-        # Handle CpG nodes (DNA methylation)
+        # Handle cpg nodes (DNA methylation)
         cpg_emb = node_embeddings["cpg"]
         cpg_batch = batch_dict["cpg"] if batch_dict else None
 
         if self.pool_type == "attention":
-            modality_embeddings["DNAmeth"] = self.cpg_attention(cpg_emb, cpg_batch)
+            modality_embeddings["dnameth"] = self.cpg_attention(cpg_emb, cpg_batch)
         else:
-            modality_embeddings["DNAmeth"] = self.pool_nodes(
+            modality_embeddings["dnameth"] = self.pool_nodes(
                 cpg_emb, cpg_batch, self.pool_type
             )
 
-        # Handle miRNA nodes
+        # Handle mirna nodes
         mirna_emb = node_embeddings["mirna"]
         mirna_batch = batch_dict["mirna"] if batch_dict else None
 
         if self.pool_type == "attention":
-            modality_embeddings["miRNA"] = self.mirna_attention(mirna_emb, mirna_batch)
+            modality_embeddings["mirna"] = self.mirna_attention(mirna_emb, mirna_batch)
         else:
-            modality_embeddings["miRNA"] = self.pool_nodes(
+            modality_embeddings["mirna"] = self.pool_nodes(
                 mirna_emb, mirna_batch, self.pool_type
             )
 
@@ -203,25 +203,25 @@ class HierarchicalPooling(nn.Module):
         # Optional: Additional transformation after pooling
         self.modality_transforms = nn.ModuleDict(
             {
-                "mRNA": nn.Sequential(
+                "mrna": nn.Sequential(
                     nn.Linear(hidden_size, hidden_size),
                     nn.LayerNorm(hidden_size),
                     nn.ReLU(),
                     nn.Dropout(0.1),
                 ),
-                "CNV": nn.Sequential(
+                "cnv": nn.Sequential(
                     nn.Linear(hidden_size, hidden_size),
                     nn.LayerNorm(hidden_size),
                     nn.ReLU(),
                     nn.Dropout(0.1),
                 ),
-                "DNAmeth": nn.Sequential(
+                "dnameth": nn.Sequential(
                     nn.Linear(hidden_size, hidden_size),
                     nn.LayerNorm(hidden_size),
                     nn.ReLU(),
                     nn.Dropout(0.1),
                 ),
-                "miRNA": nn.Sequential(
+                "mirna": nn.Sequential(
                     nn.Linear(hidden_size, hidden_size),
                     nn.LayerNorm(hidden_size),
                     nn.ReLU(),

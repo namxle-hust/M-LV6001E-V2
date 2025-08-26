@@ -30,9 +30,9 @@ class MultiModalHeteroGNN(nn.Module):
 
         # Define input channels for each node type
         in_channels_dict = {
-            "gene": 2,  # mRNA + CNV channels
-            "cpg": 1,  # Methylation values
-            "mirna": 1,  # miRNA expression
+            "gene": 2,  # mrna + cnv channels
+            "cpg": 1,  # methylation values
+            "mirna": 1,  # mirna expression
         }
 
         # Define edge types

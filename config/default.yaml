@@ -65,10 +65,10 @@ losses:
 
   # Modality weighting (auto-computed if null)
   modality_weights:
-    mRNA: null
-    CNV: null
-    DNAmeth: null
-    miRNA: null
+    mrna: null
+    cnv: null
+    dnameth: null
+    mirna: null
 
   # Consistency loss
   lambda_cons: 0.1
@@ -85,7 +85,7 @@ training:
   validation_split: 0.2
   test_split: 0.1
   early_stopping_patience: 20
-  
+
   batch_size: 32
   num_workers: 4
   pin_memory: true

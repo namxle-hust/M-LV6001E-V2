@@ -201,7 +201,7 @@ def export_embeddings(
     model.eval()
 
     all_patient_embeddings = []
-    all_modality_embeddings = {"mRNA": [], "CNV": [], "DNAmeth": [], "miRNA": []}
+    all_modality_embeddings = {"mrna": [], "cnv": [], "dnameth": [], "mirna": []}
     all_attention_weights = []
     patient_ids = []
 
@@ -249,7 +249,7 @@ def export_embeddings(
         attention_df = pd.DataFrame(
             attention_weights,
             index=patient_ids,
-            columns=["mRNA", "CNV", "DNAmeth", "miRNA"],
+            columns=["mrna", "cnv", "dnameth", "mirna"],
         )
         attention_df.to_csv(os.path.join(output_dir, "attention_weights.csv"))
 
@@ -315,7 +315,7 @@ def evaluate_fold(model, dataloader, device):
     from src.losses.recon_edge import LinkPredictionMetrics
 
     metrics = {
-        "recon_mse": {"mRNA": [], "CNV": [], "cpg": [], "mirna": []},
+        "recon_mse": {"mrna": [], "cnv": [], "cpg": [], "mirna": []},
         "edge_auroc": [],
     }
 
@@ -331,8 +331,7 @@ def evaluate_fold(model, dataloader, device):
                         value = output["losses"]["recon_detail"][modality]
                         if torch.is_tensor(value):
                             value = value.item()
-                        mod_key = modality.upper() if modality != "mirna" else modality
-                        metrics["recon_mse"][mod_key].append(value)
+                        metrics["recon_mse"][modality].append(value)
 
             # Calculate actual AUROC for edge prediction
             edge_types = [("cpg", "maps_to", "gene"), ("mirna", "targets", "gene")]
@@ -397,7 +396,7 @@ def train_kfold(model_class, all_graphs, config, device, k_folds=5):
     fold_metrics = {
         "train_loss": [],
         "val_loss": [],
-        "recon_mse": {"mRNA": [], "CNV": [], "cpg": [], "mirna": []},
+        "recon_mse": {"mrna": [], "cnv": [], "cpg": [], "mirna": []},
         "edge_auroc": [],
     }
 
@@ -451,7 +450,7 @@ def train_kfold(model_class, all_graphs, config, device, k_folds=5):
         # Evaluate reconstruction and edge prediction
         print(f"Evaluating fold {fold_idx + 1}...")
         eval_metrics = evaluate_fold(model, val_loader, device)
-        for modality in ["mRNA", "CNV", "cpg", "mirna"]:
+        for modality in ["mrna", "cnv", "cpg", "mirna"]:
             fold_metrics["recon_mse"][modality].append(
                 eval_metrics["recon_mse"][modality]
             )
@@ -484,7 +483,7 @@ def train_kfold(model_class, all_graphs, config, device, k_folds=5):
         },
     }
 
-    for modality in ["mRNA", "CNV", "cpg", "mirna"]:
+    for modality in ["mrna", "cnv", "cpg", "mirna"]:
         avg_metrics["recon_mse"][modality] = {
             "mean": np.mean(fold_metrics["recon_mse"][modality]),
             "std": np.std(fold_metrics["recon_mse"][modality]),
@@ -513,7 +512,7 @@ def train_kfold(model_class, all_graphs, config, device, k_folds=5):
         f"Edge AUROC: {avg_metrics['edge_auroc']['mean']:.4f} ± {avg_metrics['edge_auroc']['std']:.4f}"
     )
     print(f"\nPer-modality Reconstruction MSE:")
-    for modality in ["mRNA", "CNV", "cpg", "mirna"]:
+    for modality in ["mrna", "cnv", "cpg", "mirna"]:
         mean_val = avg_metrics["recon_mse"][modality]["mean"]
         std_val = avg_metrics["recon_mse"][modality]["std"]
         print(f"  {modality}: {mean_val:.4f} ± {std_val:.4f}")

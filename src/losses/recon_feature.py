@@ -76,22 +76,22 @@ class MultiModalFeatureDecoders(nn.Module):
         hidden_size = config["model"]["encoder"]["hidden_size"]
         decoder_config = config["model"]["decoders"]
 
-        # Gene decoders (separate for mRNA and CNV)
+        # Gene decoders (separate for mrna and cnv)
         self.mrna_decoder = FeatureDecoder(
             hidden_size=hidden_size,
-            output_size=1,  # Single channel for mRNA
+            output_size=1,  # Single channel for mrna
             hidden_layers=decoder_config["gene_decoder"]["hidden_sizes"],
             dropout=decoder_config["gene_decoder"]["dropout"],
         )
 
         self.cnv_decoder = FeatureDecoder(
             hidden_size=hidden_size,
-            output_size=1,  # Single channel for CNV
+            output_size=1,  # Single channel for cnv
             hidden_layers=decoder_config["gene_decoder"]["hidden_sizes"],
             dropout=decoder_config["gene_decoder"]["dropout"],
         )
 
-        # CpG decoder
+        # cpg decoder
         self.cpg_decoder = FeatureDecoder(
             hidden_size=hidden_size,
             output_size=1,
@@ -99,7 +99,7 @@ class MultiModalFeatureDecoders(nn.Module):
             dropout=decoder_config["cpg_decoder"]["dropout"],
         )
 
-        # miRNA decoder
+        # mirna decoder
         self.mirna_decoder = FeatureDecoder(
             hidden_size=hidden_size,
             output_size=1,
@@ -121,7 +121,7 @@ class MultiModalFeatureDecoders(nn.Module):
         """
         reconstructed = {}
 
-        # Decode gene embeddings to mRNA and CNV separately
+        # Decode gene embeddings to mrna and cnv separately
         gene_emb = node_embeddings["gene"]
         reconstructed["gene_mrna"] = self.mrna_decoder(gene_emb)
         reconstructed["gene_cnv"] = self.cnv_decoder(gene_emb)
@@ -204,28 +204,28 @@ class FeatureReconstructionLoss(nn.Module):
         """
         losses = {}
 
-        # Gene mRNA reconstruction
+        # Gene mrna reconstruction
         if "gene_mrna" in reconstructed and "gene_mrna" in original:
             mrna_loss = F.mse_loss(
                 reconstructed["gene_mrna"].squeeze(), original["gene_mrna"]
             )
             losses["mrna"] = mrna_loss * self.loss_weights["mrna"]
 
-        # Gene CNV reconstruction
+        # Gene cnv reconstruction
         if "gene_cnv" in reconstructed and "gene_cnv" in original:
             cnv_loss = F.mse_loss(
                 reconstructed["gene_cnv"].squeeze(), original["gene_cnv"]
             )
             losses["cnv"] = cnv_loss * self.loss_weights["cnv"]
 
-        # CpG reconstruction
+        # cpg reconstruction
         if "cpg" in reconstructed and "cpg" in original:
             cpg_loss = F.mse_loss(
                 reconstructed["cpg"].squeeze(), original["cpg"].squeeze()
             )
             losses["cpg"] = cpg_loss * self.loss_weights["cpg"]
 
-        # miRNA reconstruction
+        # mirna reconstruction
         if "mirna" in reconstructed and "mirna" in original:
             mirna_loss = F.mse_loss(
                 reconstructed["mirna"].squeeze(), original["mirna"].squeeze()

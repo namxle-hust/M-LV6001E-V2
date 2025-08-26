@@ -38,13 +38,13 @@ class PatientGraphBuilder:
         # Add node features for this patient
         # Gene nodes: Extract patient column from [n_genes, n_samples, 2]
         gene_features = self.features_dict["features"]["gene"][:, patient_idx, :]
-        data["gene"].x = gene_features  # [n_genes, 2] (mRNA + CNV channels)
+        data["gene"].x = gene_features  # [n_genes, 2] (mrna + cnv channels)
 
-        # CpG nodes: Extract patient column from [n_cpgs, n_samples]
+        # cpg nodes: Extract patient column from [n_cpgs, n_samples]
         cpg_features = self.features_dict["features"]["cpg"][:, patient_idx]
         data["cpg"].x = cpg_features.unsqueeze(-1)  # [n_cpgs, 1]
 
-        # miRNA nodes: Extract patient column from [n_mirnas, n_samples]
+        # mirna nodes: Extract patient column from [n_mirnas, n_samples]
         mirna_features = self.features_dict["features"]["mirna"][:, patient_idx]
         data["mirna"].x = mirna_features.unsqueeze(-1)  # [n_mirnas, 1]
 
@@ -64,10 +64,10 @@ class PatientGraphBuilder:
         data.patient_idx = patient_idx
 
         # Store separate gene features for later use
-        data.gene_mrna = self.features_dict["separate_gene_features"]["mRNA"][
+        data.gene_mrna = self.features_dict["separate_gene_features"]["mrna"][
             :, patient_idx
         ]
-        data.gene_cnv = self.features_dict["separate_gene_features"]["CNV"][
+        data.gene_cnv = self.features_dict["separate_gene_features"]["cnv"][
             :, patient_idx
         ]
 

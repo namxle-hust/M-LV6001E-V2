@@ -28,11 +28,11 @@ class EdgeLoader:
         self, edge_file: str, cpg_ids: List[str], gene_ids: List[str]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Load CpG to gene mapping edges.
+        Load cpg to gene mapping edges.
 
         Args:
             edge_file: Path to gene_cpg.csv
-            cpg_ids: List of CpG IDs
+            cpg_ids: List of cpg IDs
             gene_ids: List of gene IDs
 
         Returns:
@@ -62,25 +62,25 @@ class EdgeLoader:
                     weights.append(self.default_weight)
 
         if len(edges) == 0:
-            print(f"Warning: No valid CpG-gene edges found")
+            print(f"Warning: No valid cpg-gene edges found")
             edge_index = torch.zeros((2, 0), dtype=torch.long)
             edge_weight = torch.zeros(0, dtype=torch.float)
         else:
             edge_index = torch.LongTensor(edges).t()
             edge_weight = torch.FloatTensor(weights)
 
-        print(f"Loaded {len(edges)} CpG→gene edges")
+        print(f"Loaded {len(edges)} cpg→gene edges")
         return edge_index, edge_weight
 
     def load_mirna_gene_edges(
         self, edge_file: str, mirna_ids: List[str], gene_ids: List[str]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Load miRNA to gene target edges.
+        Load mirna to gene target edges.
 
         Args:
             edge_file: Path to gene_mirna.csv
-            mirna_ids: List of miRNA IDs
+            mirna_ids: List of mirna IDs
             gene_ids: List of gene IDs
 
         Returns:
@@ -110,14 +110,14 @@ class EdgeLoader:
                     weights.append(self.default_weight)
 
         if len(edges) == 0:
-            print(f"Warning: No valid miRNA-gene edges found")
+            print(f"Warning: No valid mirna-gene edges found")
             edge_index = torch.zeros((2, 0), dtype=torch.long)
             edge_weight = torch.zeros(0, dtype=torch.float)
         else:
             edge_index = torch.LongTensor(edges).t()
             edge_weight = torch.FloatTensor(weights)
 
-        print(f"Loaded {len(edges)} miRNA→gene edges")
+        print(f"Loaded {len(edges)} mirna→gene edges")
         return edge_index, edge_weight
 
     def load_gene_gene_edges(
@@ -198,7 +198,7 @@ class EdgeLoader:
         """
         edges_dict = {}
 
-        # Load CpG→gene edges
+        # Load cpg→gene edges
         cpg_gene_idx, cpg_gene_weight = self.load_cpg_gene_edges(
             config["data"]["gene_cpg_file"], node_ids["cpg"], node_ids["gene"]
         )
@@ -207,7 +207,7 @@ class EdgeLoader:
             "edge_weight": cpg_gene_weight,
         }
 
-        # Load miRNA→gene edges
+        # Load mirna→gene edges
         mirna_gene_idx, mirna_gene_weight = self.load_mirna_gene_edges(
             config["data"]["gene_mirna_file"], node_ids["mirna"], node_ids["gene"]
         )

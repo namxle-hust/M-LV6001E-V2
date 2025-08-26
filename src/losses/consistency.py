@@ -198,7 +198,7 @@ class AlignmentLoss(nn.Module):
         else:
             # Adversarial alignment
             loss = 0.0
-            modality_labels = {"mRNA": 0, "CNV": 1, "DNAmeth": 2, "miRNA": 3}
+            modality_labels = {"mrna": 0, "cnv": 1, "dnameth": 2, "mirna": 3}
 
             all_embeddings = []
             all_labels = []

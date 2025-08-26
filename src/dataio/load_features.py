@@ -40,22 +40,22 @@ class FeatureLoader:
         self, expr_file: str, cnv_file: str, samples: List[str]
     ) -> Tuple[torch.Tensor, List[str], Dict]:
         """
-        Load and concatenate mRNA expression and CNV features for gene nodes.
+        Load and concatenate mrna expression and cnv features for gene nodes.
 
         Args:
             expr_file: Path to gene expression TSV
-            cnv_file: Path to CNV TSV
+            cnv_file: Path to cnv TSV
             samples: List of sample IDs to include
 
         Returns:
             - Concatenated features tensor [n_genes, n_samples, 2]
             - List of gene IDs
-            - Dictionary with separate mRNA and CNV tensors
+            - Dictionary with separate mrna and cnv tensors
         """
         # Load expression data
         expr_df = pd.read_csv(self.features_dir / expr_file, sep="\t", index_col=0)
 
-        # Load CNV data
+        # Load cnv data
         cnv_df = pd.read_csv(self.features_dir / cnv_file, sep="\t", index_col=0)
 
         # Ensure same genes in same order
@@ -85,7 +85,7 @@ class FeatureLoader:
         )  # [n_genes, n_samples, 2]
 
         # Also keep separate for returning
-        separate_features = {"mRNA": expr_tensor, "CNV": cnv_tensor}
+        separate_features = {"mrna": expr_tensor, "cnv": cnv_tensor}
 
         return gene_features, common_genes, separate_features
 
@@ -93,15 +93,15 @@ class FeatureLoader:
         self, cpg_file: str, samples: List[str]
     ) -> Tuple[torch.Tensor, List[str]]:
         """
-        Load DNA methylation features for CpG nodes.
+        Load DNA methylation features for cpg nodes.
 
         Args:
-            cpg_file: Path to CpG methylation TSV
+            cpg_file: Path to cpg methylation TSV
             samples: List of sample IDs to include
 
         Returns:
             - Features tensor [n_cpgs, n_samples]
-            - List of CpG IDs
+            - List of cpg IDs
         """
         cpg_df = pd.read_csv(self.features_dir / cpg_file, sep="\t", index_col=0)
 
@@ -117,15 +117,15 @@ class FeatureLoader:
         self, mirna_file: str, samples: List[str]
     ) -> Tuple[torch.Tensor, List[str]]:
         """
-        Load miRNA expression features.
+        Load mirna expression features.
 
         Args:
-            mirna_file: Path to miRNA expression TSV
+            mirna_file: Path to mirna expression TSV
             samples: List of sample IDs to include
 
         Returns:
             - Features tensor [n_mirnas, n_samples]
-            - List of miRNA IDs
+            - List of mirna IDs
         """
         mirna_df = pd.read_csv(self.features_dir / mirna_file, sep="\t", index_col=0)
 
@@ -150,17 +150,17 @@ class FeatureLoader:
         # Load samples
         samples = self.load_samples(config["data"]["samples_file"])
 
-        # Load gene features (mRNA + CNV)
+        # Load gene features (mrna + cnv)
         gene_features, gene_ids, gene_separate = self.load_gene_features(
             config["data"]["gene_expr_file"], config["data"]["gene_cnv_file"], samples
         )
 
-        # Load CpG features
+        # Load cpg features
         cpg_features, cpg_ids = self.load_cpg_features(
             config["data"]["cpg_file"], samples
         )
 
-        # Load miRNA features
+        # Load mirna features
         mirna_features, mirna_ids = self.load_mirna_features(
             config["data"]["mirna_file"], samples
         )
@@ -172,7 +172,7 @@ class FeatureLoader:
                 "cpg": cpg_features,  # [n_cpgs, n_samples]
                 "mirna": mirna_features,  # [n_mirnas, n_samples]
             },
-            "separate_gene_features": gene_separate,  # {'mRNA': tensor, 'CNV': tensor}
+            "separate_gene_features": gene_separate,  # {'mrna': tensor, 'cnv': tensor}
             "node_ids": {"gene": gene_ids, "cpg": cpg_ids, "mirna": mirna_ids},
             "num_samples": len(samples),
             "num_nodes": {
@@ -213,6 +213,6 @@ def validate_features(features_dict: Dict) -> None:
 
     print(f"Feature validation passed:")
     print(f"  - Samples: {n_samples}")
-    print(f"  - Gene nodes: {features_dict['num_nodes']['gene']}")
-    print(f"  - CpG nodes: {features_dict['num_nodes']['cpg']}")
-    print(f"  - miRNA nodes: {features_dict['num_nodes']['mirna']}")
+    print(f"  - gene nodes: {features_dict['num_nodes']['gene']}")
+    print(f"  - cpg nodes: {features_dict['num_nodes']['cpg']}")
+    print(f"  - mirna nodes: {features_dict['num_nodes']['mirna']}")

@@ -54,10 +54,10 @@ def evaluate_reconstruction(
     model.eval()
 
     all_metrics = {
-        "mRNA_mse": [],
-        "mRNA_mae": [],
-        "CNV_mse": [],
-        "CNV_mae": [],
+        "mrna_mse": [],
+        "mrna_mae": [],
+        "cnv_mse": [],
+        "cnv_mae": [],
         "cpg_mse": [],
         "cpg_mae": [],
         "mirna_mse": [],
@@ -75,28 +75,28 @@ def evaluate_reconstruction(
             reconstructed = model.feature_decoders(output["node_embeddings"])
 
             # Compare with original
-            # mRNA
+            # mrna
             if "gene_mrna" in reconstructed:
                 pred = reconstructed["gene_mrna"].squeeze().cpu().numpy()
                 true = data.gene_mrna_batched.cpu().numpy()
-                all_metrics["mRNA_mse"].append(mean_squared_error(true, pred))
-                all_metrics["mRNA_mae"].append(mean_absolute_error(true, pred))
+                all_metrics["mrna_mse"].append(mean_squared_error(true, pred))
+                all_metrics["mrna_mae"].append(mean_absolute_error(true, pred))
 
-            # CNV
+            # cnv
             if "gene_cnv" in reconstructed:
                 pred = reconstructed["gene_cnv"].squeeze().cpu().numpy()
                 true = data.gene_cnv_batched.cpu().numpy()
-                all_metrics["CNV_mse"].append(mean_squared_error(true, pred))
-                all_metrics["CNV_mae"].append(mean_absolute_error(true, pred))
+                all_metrics["cnv_mse"].append(mean_squared_error(true, pred))
+                all_metrics["cnv_mae"].append(mean_absolute_error(true, pred))
 
-            # CpG
+            # cpg
             if "cpg" in reconstructed:
                 pred = reconstructed["cpg"].squeeze().cpu().numpy()
                 true = data["cpg"].x.squeeze().cpu().numpy()
                 all_metrics["cpg_mse"].append(mean_squared_error(true, pred))
                 all_metrics["cpg_mae"].append(mean_absolute_error(true, pred))
 
-            # miRNA
+            # mirna
             if "mirna" in reconstructed:
                 pred = reconstructed["mirna"].squeeze().cpu().numpy()
                 true = data["mirna"].x.squeeze().cpu().numpy()
@@ -361,14 +361,14 @@ def main():
     - Stage: {checkpoint['stage']}
     
     Reconstruction Performance:
-    - mRNA MSE: {recon_metrics.get('mRNA_mse', 'N/A'):.4f}
-    - CNV MSE: {recon_metrics.get('CNV_mse', 'N/A'):.4f}
-    - CpG MSE: {recon_metrics.get('cpg_mse', 'N/A'):.4f}
-    - miRNA MSE: {recon_metrics.get('mirna_mse', 'N/A'):.4f}
+    - mrna MSE: {recon_metrics.get('mrna_mse', 'N/A'):.4f}
+    - cnv MSE: {recon_metrics.get('cnv_mse', 'N/A'):.4f}
+    - cpg MSE: {recon_metrics.get('cpg_mse', 'N/A'):.4f}
+    - mirna MSE: {recon_metrics.get('mirna_mse', 'N/A'):.4f}
     
     Link Prediction Performance:
-    - CpG→Gene AUROC: {link_metrics.get('cpg_maps_to_gene_auroc', 'N/A'):.4f}
-    - miRNA→Gene AUROC: {link_metrics.get('mirna_targets_gene_auroc', 'N/A'):.4f}
+    - cpg→gene AUROC: {link_metrics.get('cpg_maps_to_gene_auroc', 'N/A'):.4f}
+    - mirna→gene AUROC: {link_metrics.get('mirna_targets_gene_auroc', 'N/A'):.4f}
     
     ========================================
     """
