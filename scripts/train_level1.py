@@ -205,6 +205,9 @@ def export_embeddings(
     all_attention_weights = []
     patient_ids = []
 
+    print(f"Dataloader length: {len(dataloader)}")
+    print(f"Expected batches: {len(dataloader.dataset) // dataloader.batch_size}")
+
     with torch.no_grad():
         for data in tqdm(dataloader, desc="Exporting embeddings"):
             data = data.to(device)
