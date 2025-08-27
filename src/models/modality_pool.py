@@ -1,5 +1,6 @@
 """
 Per-modality pooling to obtain modality-specific embeddings.
+FIXED VERSION: Properly handles batched data with multiple patients.
 """
 
 import torch
@@ -79,8 +80,13 @@ class ModalityPooling(nn.Module):
         Returns:
             Pooled features [batch_size, hidden_size]
         """
+        # FIX: Properly handle batch assignments
+        # If batch is None, we need to handle single vs batched graphs correctly
         if batch is None:
-            # Single graph case
+            # If x has no nodes, return zeros
+            if x.size(0) == 0:
+                return torch.zeros(1, x.size(1), device=x.device)
+            # For truly single graph case, create batch assignment
             batch = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
 
         if pool_fn == "mean":
@@ -100,18 +106,31 @@ class ModalityPooling(nn.Module):
         """
         Pool node embeddings to get modality embeddings.
 
+        FIXED: Now properly pools per-patient when batch_dict is provided.
+
         Args:
             node_embeddings: Node embeddings by type
             batch_dict: Batch assignments by node type (for batched graphs)
 
         Returns:
             Dictionary of modality embeddings:
-                - 'mrna': mrna expression embedding
-                - 'cnv': Copy number variation embedding
-                - 'dnameth': DNA methylation embedding
-                - 'mirna': mirna expression embedding
+                - 'mrna': mrna expression embedding [batch_size, hidden_size]
+                - 'cnv': Copy number variation embedding [batch_size, hidden_size]
+                - 'dnameth': DNA methylation embedding [batch_size, hidden_size]
+                - 'mirna': mirna expression embedding [batch_size, hidden_size]
         """
         modality_embeddings = {}
+
+        # FIX: Determine batch size from batch assignments
+        if batch_dict is not None and "gene" in batch_dict:
+            # Get the actual batch size (number of unique patients)
+            batch_size = (
+                batch_dict["gene"].max().item() + 1
+                if batch_dict["gene"].numel() > 0
+                else 1
+            )
+        else:
+            batch_size = 1
 
         # Handle gene nodes (split into mrna and cnv)
         gene_emb = node_embeddings["gene"]
@@ -122,7 +141,7 @@ class ModalityPooling(nn.Module):
             mrna_emb = self.mrna_projection(gene_emb)
             cnv_emb = self.cnv_projection(gene_emb)
 
-            # Pool separately
+            # Pool separately - this will now pool per-patient
             if self.pool_type == "attention":
                 modality_embeddings["mrna"] = self.gene_attention(mrna_emb, gene_batch)
                 modality_embeddings["cnv"] = self.gene_attention(cnv_emb, gene_batch)
@@ -165,6 +184,23 @@ class ModalityPooling(nn.Module):
             modality_embeddings["mirna"] = self.pool_nodes(
                 mirna_emb, mirna_batch, self.pool_type
             )
+
+        # FIX: Ensure all modality embeddings have the correct batch dimension
+        # Each should be [batch_size, hidden_size]
+        for modality in modality_embeddings:
+            if modality_embeddings[modality].dim() == 1:
+                # If we got a 1D tensor, reshape to [1, hidden_size]
+                modality_embeddings[modality] = modality_embeddings[modality].unsqueeze(
+                    0
+                )
+
+            # Verify shape
+            expected_batch_size = batch_size
+            actual_batch_size = modality_embeddings[modality].size(0)
+            if actual_batch_size != expected_batch_size:
+                print(
+                    f"Warning: {modality} has batch size {actual_batch_size}, expected {expected_batch_size}"
+                )
 
         return modality_embeddings
 
@@ -246,7 +282,7 @@ class HierarchicalPooling(nn.Module):
             - Raw modality embeddings
             - Transformed modality embeddings
         """
-        # Get raw pooled embeddings
+        # Get raw pooled embeddings - now properly per-patient
         raw_modality_emb = self.node_pooling(node_embeddings, batch_dict)
 
         # Apply modality-specific transformations

@@ -244,6 +244,14 @@ def export_embeddings(
             all_modality_embeddings[modality], dim=0
         )
 
+    print(f"Patient IDs:")
+    print(patient_ids)
+    print("All attention weights:")
+    print(all_attention_weights)
+    print("All modality embeddings:")
+    print(all_modality_embeddings)
+
+
     # Create output directory
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -254,7 +262,6 @@ def export_embeddings(
     # Save attention weights as CSV
     if all_attention_weights:
         attention_weights = torch.cat(all_attention_weights, dim=0).numpy()
-        print(attention_weights.shape)
         attention_df = pd.DataFrame(
             attention_weights,
             index=patient_ids,
