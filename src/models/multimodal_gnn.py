@@ -75,6 +75,8 @@ class MultiModalHeteroGNN(nn.Module):
         """
         Forward pass through the model.
 
+        FIXED: Properly detect and use batch assignments.
+
         Args:
             data: Batched HeteroData
 
@@ -100,17 +102,30 @@ class MultiModalHeteroGNN(nn.Module):
         # Encode nodes
         node_embeddings = self.encoder(x_dict, edge_index_dict)
 
-        # Get batch assignments if batched
+        # FIX: Properly detect batch assignments
+        # In PyTorch Geometric, batch assignments are stored per node type
         batch_dict = None
-        if hasattr(data, "batch"):
+
+        # Check if this is a batched graph by looking for batch assignments in node data
+        if hasattr(data["gene"], "batch"):
             batch_dict = {
                 "gene": data["gene"].batch,
                 "cpg": data["cpg"].batch,
                 "mirna": data["mirna"].batch,
             }
 
+            # Debug: Print batch information
+            unique_batches = torch.unique(data["gene"].batch)
+            num_patients = len(unique_batches)
+            print(f"DEBUG: Detected {num_patients} patients in batch")
+            print(f"DEBUG: Unique batch IDs: {unique_batches.tolist()}")
+
         # Pool to modality embeddings
         modality_embeddings = self.modality_pooling(node_embeddings, batch_dict)
+
+        # Debug: Print modality embedding shapes
+        for modality, emb in modality_embeddings.items():
+            print(f"DEBUG: {modality} embedding shape: {emb.shape}")
 
         # Initialize output
         output = {
@@ -124,6 +139,9 @@ class MultiModalHeteroGNN(nn.Module):
                 self.modality_attention(modality_embeddings)
             )
 
+            # Debug: Print attention weights shape
+            print(f"DEBUG: Attention weights shape: {attention_weights.shape}")
+
             output["fused_embedding"] = fused_embedding
             output["attention_weights"] = attention_weights
             output["attention_dict"] = attention_dict
@@ -136,125 +154,3 @@ class MultiModalHeteroGNN(nn.Module):
             output["attention_dict"] = None
 
         return output
-
-
-class MultiModalGNNWithDecoders(nn.Module):
-    """
-    Complete model with decoders for reconstruction.
-    """
-
-    def __init__(self, config: dict):
-        """
-        Initialize model with decoders.
-
-        Args:
-            config: Configuration dictionary
-        """
-        super().__init__()
-
-        # Main model
-        self.model = MultiModalHeteroGNN(config)
-
-        # Import decoder modules
-        from ..losses.recon_feature import MultiModalFeatureDecoders
-        from ..losses.recon_edge import EdgeReconstructionLoss
-        from ..losses.consistency import ConsistencyLoss, EntropyRegularization
-
-        # Feature decoders
-        self.feature_decoders = MultiModalFeatureDecoders(config)
-
-        # Edge decoder
-        self.edge_decoder = EdgeReconstructionLoss(
-            neg_sampling_ratio=config["losses"]["neg_sampling_ratio"],
-            decoder_type="inner_product",
-            hidden_size=config["model"]["encoder"]["hidden_size"],
-        )
-
-        # Consistency loss
-        self.consistency_loss = ConsistencyLoss(distance_metric="l2", normalize=True)
-
-        # Entropy regularization
-        self.entropy_reg = EntropyRegularization()
-
-        self.config = config
-
-    def forward(self, data: HeteroData, compute_loss: bool = False) -> Dict:
-        """
-        Forward pass with optional loss computation.
-
-        Args:
-            data: Batched HeteroData
-            compute_loss: Whether to compute losses
-
-        Returns:
-            Dictionary containing model outputs and optionally losses
-        """
-        # Forward through main model
-        output = self.model(data)
-
-        if compute_loss:
-            losses = {}
-
-            # Feature reconstruction
-            reconstructed = self.feature_decoders(output["node_embeddings"])
-
-            # Prepare original features
-            original = {
-                "gene_mrna": data.gene_mrna_batched,
-                "gene_cnv": data.gene_cnv_batched,
-                "cpg": data["cpg"].x,
-                "mirna": data["mirna"].x,
-            }
-
-            # Import loss module
-            from ..losses.recon_feature import FeatureReconstructionLoss
-
-            recon_loss_fn = FeatureReconstructionLoss(self.config)
-            recon_loss, recon_losses_detail = recon_loss_fn(reconstructed, original)
-
-            losses["recon_total"] = recon_loss
-            losses["recon_detail"] = recon_losses_detail
-
-            # Edge reconstruction
-            edge_index_dict = {}
-            for edge_type in self.model.edge_types:
-                if hasattr(data[edge_type], "edge_index"):
-                    edge_index_dict[edge_type] = data[edge_type].edge_index
-
-            edge_loss, edge_losses_detail = self.edge_decoder(
-                output["node_embeddings"], edge_index_dict
-            )
-
-            losses["edge_total"] = edge_loss * self.config["losses"]["lambda_edge"]
-            losses["edge_detail"] = edge_losses_detail
-
-            # Stage B specific losses
-            if self.model.training_stage == "B":
-                # Consistency loss
-                cons_loss, cons_detail = self.consistency_loss(
-                    output["fused_embedding"], output["modality_embeddings"]
-                )
-                losses["consistency"] = cons_loss * self.config["losses"]["lambda_cons"]
-                losses["consistency_detail"] = cons_detail
-
-                # Entropy regularization
-                if output["attention_weights"] is not None:
-                    ent_loss = self.entropy_reg(output["attention_weights"])
-                    losses["entropy"] = ent_loss * self.config["losses"]["lambda_ent"]
-
-            # Total loss
-            total_loss = losses["recon_total"] + losses["edge_total"]
-
-            if self.model.training_stage == "B":
-                total_loss += losses.get("consistency", 0)
-                total_loss += losses.get("entropy", 0)
-
-            losses["total"] = total_loss
-
-            output["losses"] = losses
-
-        return output
-
-    def set_training_stage(self, stage: str):
-        """Set training stage."""
-        self.model.set_training_stage(stage)
