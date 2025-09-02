@@ -230,11 +230,6 @@ def export_embeddings(
             # Patient IDs
             patient_ids.extend(data.patient_ids)
 
-            print(
-                f"Attention weights shape: {output['attention_weights'].shape if output['attention_weights'] is not None else 'None'}"
-            )
-            print(f"Expected: ({len(data.patient_ids)}, 4)")
-
     # Concatenate
     patient_embeddings = torch.cat(all_patient_embeddings, dim=0)
 
