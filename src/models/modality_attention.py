@@ -45,7 +45,7 @@ class ModalityAttention(nn.Module):
         )
 
         # Optional: Modality-specific transformations before attention
-        self.modality_keys = ["mrna", "cnv", "dnameth", "mirna"]
+        self.modality_keys = ["mrna", "cnv", "cpg", "mirna"]
 
     def compute_attention_weights(
         self, modality_embeddings: Dict[str, torch.Tensor]
@@ -279,7 +279,7 @@ class GatedModalityFusion(nn.Module):
             {
                 "mrna": nn.Linear(hidden_size * 2, hidden_size),
                 "cnv": nn.Linear(hidden_size * 2, hidden_size),
-                "dnameth": nn.Linear(hidden_size * 2, hidden_size),
+                "cpg": nn.Linear(hidden_size * 2, hidden_size),
                 "mirna": nn.Linear(hidden_size * 2, hidden_size),
             }
         )

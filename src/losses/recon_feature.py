@@ -206,15 +206,19 @@ class FeatureReconstructionLoss(nn.Module):
 
         # Gene mrna reconstruction
         if "gene_mrna" in reconstructed and "gene_mrna" in original:
+            # Flatten original to match decoder output: [n_patients, n_genes] -> [n_patients * n_genes]
+            original_mrna_flat = original["gene_mrna"].view(-1)
             mrna_loss = F.mse_loss(
-                reconstructed["gene_mrna"].squeeze(), original["gene_mrna"]
+                reconstructed["gene_mrna"].squeeze(), original_mrna_flat
             )
             losses["mrna"] = mrna_loss * self.loss_weights["mrna"]
 
         # Gene cnv reconstruction
         if "gene_cnv" in reconstructed and "gene_cnv" in original:
+            # Flatten original to match decoder output: [n_patients, n_genes] -> [n_patients * n_genes]
+            original_cnv_flat = original["gene_cnv"].view(-1)
             cnv_loss = F.mse_loss(
-                reconstructed["gene_cnv"].squeeze(), original["gene_cnv"]
+                reconstructed["gene_cnv"].squeeze(), original_cnv_flat
             )
             losses["cnv"] = cnv_loss * self.loss_weights["cnv"]
 

@@ -302,3 +302,11 @@ If you use this code, please cite:
   year={2024}
 }
 ```
+
+## Docker
+
+```bash
+docker run -tiv .:/workspace multimodal-gnn:1.0.0 bash
+
+python scripts/train_level1.py --epochs 200 --batch_size 64
+```

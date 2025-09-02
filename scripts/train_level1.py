@@ -134,7 +134,7 @@ def validate_epoch(
     batch_count = 0
 
     with torch.no_grad():
-        for data in tqdm(dataloader, desc=f"Validation - Stage {stage}"):
+        for data in dataloader:
             data = data.to(device)
 
             # Forward pass
@@ -201,7 +201,7 @@ def export_embeddings(
     model.eval()
 
     all_patient_embeddings = []
-    all_modality_embeddings = {"mrna": [], "cnv": [], "dnameth": [], "mirna": []}
+    all_modality_embeddings = {"mrna": [], "cnv": [], "cpg": [], "mirna": []}
     all_attention_weights = []
     patient_ids = []
 
@@ -251,7 +251,6 @@ def export_embeddings(
     print("All modality embeddings:")
     print(all_modality_embeddings)
 
-
     # Create output directory
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -265,14 +264,14 @@ def export_embeddings(
         attention_df = pd.DataFrame(
             attention_weights,
             index=patient_ids,
-            columns=["mrna", "cnv", "dnameth", "mirna"],
+            columns=["mrna", "cnv", "cpg", "mirna"],
         )
         attention_df.to_csv(os.path.join(output_dir, "attention_weights.csv"))
 
     print(f"Embeddings exported to {output_dir}")
 
 
-def train_model(model, train_loader, val_loader, optimizer, config, device, stage="A"):
+def train_model(model, train_loader, val_loader, optimizer, config, device, stage="A", fold_idx=None):
     """Train model for one fold."""
     best_val_loss = float("inf")
     best_metrics = {}
@@ -287,7 +286,10 @@ def train_model(model, train_loader, val_loader, optimizer, config, device, stag
 
     num_epochs = config["training"][f"stage_{stage.lower()}"]["epochs"]
 
-    for epoch in range(1, num_epochs + 1):
+    fold_desc = f" - Fold {fold_idx+1}" if fold_idx is not None else ""
+    progress_bar = tqdm(range(1, num_epochs + 1), desc=f"Stage {stage}{fold_desc}", leave=False)
+    
+    for _ in progress_bar:
         # Train
         model.train()
         train_loss = 0
@@ -308,6 +310,12 @@ def train_model(model, train_loader, val_loader, optimizer, config, device, stag
 
         # Validate
         val_metrics = validate_epoch(model, val_loader, device, stage)
+        
+        # Update progress bar with metrics
+        progress_bar.set_postfix({
+            'train_loss': f'{avg_train_loss:.4f}',
+            'val_loss': f'{val_metrics["loss"]:.4f}'
+        })
 
         # Update scheduler
         scheduler.step(val_metrics["loss"])
@@ -435,6 +443,14 @@ def train_kfold(model_class, all_graphs, config, device, k_folds=5):
         train_loader = data_module.train_dataloader()
         val_loader = data_module.val_dataloader()
 
+        # print(f"[Train] dataset size: {len(train_loader.dataset)}")
+        # print(f"[Train] batch size: {train_loader.batch_size}")
+        # print(f"[Train] number of batches: {len(train_loader)}")
+
+        # print(f"[Val] dataset size: {len(val_loader.dataset)}")
+        # print(f"[Val] batch size: {val_loader.batch_size}")
+        # print(f"[Val] number of batches: {len(val_loader)}")
+
         # Stage A: Pretrain
         print(f"Training Stage A...")
         model.set_training_stage("A")
@@ -444,7 +460,7 @@ def train_kfold(model_class, all_graphs, config, device, k_folds=5):
             weight_decay=config["training"]["stage_a"]["weight_decay"],
         )
         stage_a_results = train_model(
-            model, train_loader, val_loader, optimizer_a, config, device, "A"
+            model, train_loader, val_loader, optimizer_a, config, device, "A", fold_idx
         )
 
         # Stage B: Fusion
@@ -456,7 +472,7 @@ def train_kfold(model_class, all_graphs, config, device, k_folds=5):
             weight_decay=config["training"]["stage_b"]["weight_decay"],
         )
         stage_b_results = train_model(
-            model, train_loader, val_loader, optimizer_b, config, device, "B"
+            model, train_loader, val_loader, optimizer_b, config, device, "B", fold_idx
         )
 
         # Store fold metrics
@@ -600,6 +616,7 @@ def main():
     feature_loader = FeatureLoader(config["data"]["features_dir"])
     features_dict = feature_loader.load_all_features(config)
     validate_features(features_dict)
+    print(features_dict)
 
     # Load edges
     edge_loader = EdgeLoader(
@@ -608,10 +625,14 @@ def main():
     edges_dict = edge_loader.load_all_edges(config, features_dict["node_ids"])
     validate_edges(edges_dict, features_dict["num_nodes"])
 
+    print(edges_dict)
+
     # Build patient graphs
     print("Building patient graphs...")
     graph_builder = PatientGraphBuilder(features_dict, edges_dict)
     all_graphs = graph_builder.build_all_graphs()
+
+    print(f"Total graphs: {len(all_graphs)}")
 
     # K-fold training is always required
 
@@ -622,12 +643,15 @@ def main():
         MultiModalGNNWithDecoders, all_graphs, config, device, k_folds=args.kfold
     )
 
+    # exit(1)
+
     print("\n=== TRAINING FINAL MODEL ON ALL PATIENTS ===")
 
     # Create fresh model for final training on all data
     model = MultiModalGNNWithDecoders(config).to(device)
 
     # Use all graphs for training (with small validation set)
+    all_graphs = graph_builder.build_all_graphs()
     train_graphs = all_graphs
 
     # Create datasets
@@ -670,7 +694,7 @@ def main():
     best_train_loss = float("inf")
     patience_counter = 0
 
-    for epoch in range(1, config["training"]["stage_a"]["epochs"] + 1):
+    for epoch in tqdm(range(1, config["training"]["stage_a"]["epochs"] + 1), desc="Stage A Training", leave=False):
         # Train
         train_metrics = train_epoch(
             model, train_loader, optimizer, device, epoch, "A", writer
@@ -727,7 +751,7 @@ def main():
     best_train_loss = float("inf")
     patience_counter = 0
 
-    for epoch in range(1, config["training"]["stage_b"]["epochs"] + 1):
+    for epoch in tqdm(range(1, config["training"]["stage_b"]["epochs"] + 1), desc="Stage B Training", leave=False):
         # Train
         train_metrics = train_epoch(
             model, train_loader, optimizer, device, epoch, "B", writer

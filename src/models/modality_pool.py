@@ -116,7 +116,7 @@ class ModalityPooling(nn.Module):
             Dictionary of modality embeddings:
                 - 'mrna': mrna expression embedding [batch_size, hidden_size]
                 - 'cnv': Copy number variation embedding [batch_size, hidden_size]
-                - 'dnameth': DNA methylation embedding [batch_size, hidden_size]
+                - 'cpg': DNA methylation embedding [batch_size, hidden_size]
                 - 'mirna': mirna expression embedding [batch_size, hidden_size]
         """
         modality_embeddings = {}
@@ -168,9 +168,9 @@ class ModalityPooling(nn.Module):
         cpg_batch = batch_dict["cpg"] if batch_dict else None
 
         if self.pool_type == "attention":
-            modality_embeddings["dnameth"] = self.cpg_attention(cpg_emb, cpg_batch)
+            modality_embeddings["cpg"] = self.cpg_attention(cpg_emb, cpg_batch)
         else:
-            modality_embeddings["dnameth"] = self.pool_nodes(
+            modality_embeddings["cpg"] = self.pool_nodes(
                 cpg_emb, cpg_batch, self.pool_type
             )
 
@@ -251,7 +251,7 @@ class HierarchicalPooling(nn.Module):
                     nn.ReLU(),
                     nn.Dropout(0.1),
                 ),
-                "dnameth": nn.Sequential(
+                "cpg": nn.Sequential(
                     nn.Linear(hidden_size, hidden_size),
                     nn.LayerNorm(hidden_size),
                     nn.ReLU(),

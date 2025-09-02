@@ -89,16 +89,12 @@ def custom_collate_fn(batch: List[HeteroData]) -> HeteroData:
     batched_data.patient_indices = torch.tensor([g.patient_idx for g in batch])
 
     # Combine gene_mrna and gene_cnv features
-    if hasattr(batch[0], "gene_mrna"):
-        gene_mrna_list = [g.gene_mrna for g in batch]
-        gene_cnv_list = [g.gene_cnv for g in batch]
+    gene_mrna_list = [g.gene_mrna for g in batch]
+    gene_cnv_list = [g.gene_cnv for g in batch]
 
-        # Get batch assignment for gene nodes
-        batch_assign = batched_data["gene"].batch
-
-        # Stack features
-        batched_data.gene_mrna_batched = torch.cat(gene_mrna_list, dim=0)
-        batched_data.gene_cnv_batched = torch.cat(gene_cnv_list, dim=0)
+    # Stack features across patients (dim=0 creates [n_patients, n_genes])
+    batched_data.gene_mrna_batched = torch.stack(gene_mrna_list, dim=0)
+    batched_data.gene_cnv_batched = torch.stack(gene_cnv_list, dim=0)
 
     return batched_data
 
@@ -129,36 +125,41 @@ class MultiModalDataModule:
         # Create datasets
         self.train_dataset = PatientGraphDataset(self.train_graphs)
         self.val_dataset = PatientGraphDataset(self.val_graphs)
-        self.test_dataset = PatientGraphDataset(self.test_graphs)
+        # self.test_dataset = PatientGraphDataset(self.test_graphs)
 
     def _split_data(self) -> Tuple:
         """Split data into train/val/test sets."""
         n_total = len(self.all_graphs)
         val_split = self.config["training"].get("validation_split", 0.2)
-        test_split = self.config["training"].get("test_split", 0.1)
+        # test_split = self.config["training"].get("test_split", 0.1)
 
         # Set seed for reproducibility
         np.random.seed(self.seed)
         indices = np.arange(n_total)
         np.random.shuffle(indices)
 
-        n_test = int(n_total * test_split)
+        # n_test = int(n_total * test_split)
         n_val = int(n_total * val_split)
-        n_train = n_total - n_test - n_val
+        # n_train = n_total - n_test - n_val
+        n_train = n_total - n_val
 
         train_idx = indices[:n_train]
         val_idx = indices[n_train : n_train + n_val]
-        test_idx = indices[n_train + n_val :]
+        # test_idx = indices[n_train + n_val :]
 
         train_graphs = [self.all_graphs[i] for i in train_idx]
         val_graphs = [self.all_graphs[i] for i in val_idx]
-        test_graphs = [self.all_graphs[i] for i in test_idx]
+        # test_graphs = [self.all_graphs[i] for i in test_idx]
 
+        # print(
+        #     f"Data split: train={len(train_graphs)}, val={len(val_graphs)}, test={len(test_graphs)}"
+        # )
         print(
-            f"Data split: train={len(train_graphs)}, val={len(val_graphs)}, test={len(test_graphs)}"
+            f"Data split: train={len(train_graphs)}, val={len(val_graphs)}"
         )
 
-        return train_graphs, val_graphs, test_graphs
+        # return train_graphs, val_graphs, test_graphs
+        return train_graphs, val_graphs, None
 
     def setup_kfold(self, n_folds: int = 5):
         """Setup K-fold cross-validation splits."""

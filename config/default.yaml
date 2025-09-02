@@ -67,7 +67,7 @@ losses:
   modality_weights:
     mrna: null
     cnv: null
-    dnameth: null
+    cpg: null
     mirna: null
 
   # Consistency loss
@@ -109,7 +109,6 @@ training:
   # General
   grad_clip: 1.0
   early_stopping_patience: 20
-  validation_split: 0.2
 
 kfold:
   enabled: false

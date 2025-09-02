@@ -100,14 +100,15 @@ class MultiModalHeteroGNN(nn.Module):
         # Encode nodes
         node_embeddings = self.encoder(x_dict, edge_index_dict)
 
+        # print(f"Gene embeddings shape: {node_embeddings['gene'].shape}")
+
         # Get batch assignments if batched
         batch_dict = None
-        if hasattr(data, "batch"):
-            batch_dict = {
-                "gene": data["gene"].batch,
-                "cpg": data["cpg"].batch,
-                "mirna": data["mirna"].batch,
-            }
+        batch_dict = {
+            "gene": data["gene"].batch,
+            "cpg": data["cpg"].batch,
+            "mirna": data["mirna"].batch,
+        }
 
         # Pool to modality embeddings
         modality_embeddings = self.modality_pooling(node_embeddings, batch_dict)
