@@ -211,7 +211,8 @@ class FeatureReconstructionLoss(nn.Module):
             mrna_loss = F.mse_loss(
                 reconstructed["gene_mrna"].squeeze(), original_mrna_flat
             )
-            losses["mrna"] = mrna_loss * self.loss_weights["mrna"]
+            # losses["mrna"] = mrna_loss * self.loss_weights["mrna"]
+            losses["mrna"] = mrna_loss
 
         # Gene cnv reconstruction
         if "gene_cnv" in reconstructed and "gene_cnv" in original:
@@ -220,21 +221,24 @@ class FeatureReconstructionLoss(nn.Module):
             cnv_loss = F.mse_loss(
                 reconstructed["gene_cnv"].squeeze(), original_cnv_flat
             )
-            losses["cnv"] = cnv_loss * self.loss_weights["cnv"]
+            # losses["cnv"] = cnv_loss * self.loss_weights["cnv"]
+            losses["cnv"] = cnv_loss
 
         # cpg reconstruction
         if "cpg" in reconstructed and "cpg" in original:
             cpg_loss = F.mse_loss(
                 reconstructed["cpg"].squeeze(), original["cpg"].squeeze()
             )
-            losses["cpg"] = cpg_loss * self.loss_weights["cpg"]
+            # losses["cpg"] = cpg_loss * self.loss_weights["cpg"]
+            losses["cpg"] = cpg_loss
 
         # mirna reconstruction
         if "mirna" in reconstructed and "mirna" in original:
             mirna_loss = F.mse_loss(
                 reconstructed["mirna"].squeeze(), original["mirna"].squeeze()
             )
-            losses["mirna"] = mirna_loss * self.loss_weights["mirna"]
+            # losses["mirna"] = mirna_loss * self.loss_weights["mirna"]
+            losses["mirna"] = mirna_loss
 
         # Apply modality weights if provided
         if num_nodes is not None:
