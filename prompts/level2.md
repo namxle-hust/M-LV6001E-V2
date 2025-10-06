@@ -51,13 +51,10 @@ Run KMeans with the chosen K to get cluster_id per patient (0..K-1).
   - Build design matrix X from one-hot encoded cluster IDs (drop one baseline column to avoid collinearity).
   - Fit with cph.fit(df, duration_col="OS_time", event_col="OS_event").
 
-Compute in-sample C-index:
-
-Get risk scores with cph.predict_partial_hazard(df).
-
-Compute Harrell’s C-index on the full data using lifelines.utils.concordance_index(OS_time, -risk, OS_event).
-
-Report this single C-index value (note: it is optimistic because it’s in-sample).
+- Compute in-sample C-index:
+    - Get risk scores with cph.predict_partial_hazard(df).
+    - Compute Harrell’s C-index on the full data using lifelines.utils.concordance_index(OS_time, -risk, OS_event).
+    - Report this single C-index value (note: it is optimistic because it’s in-sample).
 
 Optional: bootstrap confidence interval (still no CV):
 

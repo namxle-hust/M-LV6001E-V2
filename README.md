@@ -49,8 +49,7 @@ project/
 │       ├── logging.py            # Logging setup
 │       └── metrics.py            # Evaluation metrics
 ├── scripts/
-│   ├── train_level1.py           # Level-1 training script
-│   └── eval_level1.py            # Evaluation script
+│   └── train_level1.py           # Level-1 training script with K-fold evaluation
 ├── outputs/
 │   ├── checkpoints/              # Model checkpoints
 │   ├── logs/                     # Training logs
@@ -119,57 +118,59 @@ Patient3
 
 ## Configuration
 
-### Model Configuration (`config/model.yaml`)
+The project uses a single unified configuration file `config/default.yaml` with hierarchical sections:
 
 ```yaml
-encoder:
-  type: 'HeteroGAT' # or "HeteroRGCN"
-  hidden_size: 256
-  num_layers: 3
-  dropout: 0.2
-  use_layer_norm: true
+# Model architecture
+model:
+  encoder:
+    type: 'HeteroGAT'  # Options: HeteroGAT, HeteroRGCN
+    hidden_size: 256
+    num_layers: 3
+    dropout: 0.2
+    use_layer_norm: true
+    use_residual: true
 
-pooling:
-  type: 'mean' # or "attention"
+  pooling:
+    type: 'mean'  # Options: mean, attention
 
-attention:
-  hidden_size: 128
-  temperature: 1.0
+  attention:
+    hidden_size: 128
+    num_heads: 1
+    temperature: 1.0
+    dropout: 0.1
 
-decoders:
-  hidden_sizes: [128, 64]
-
+# Loss configuration
 losses:
-  lambda_recon: 1.0
+  lambda_recon_mrna: 1.0
+  lambda_recon_cnv: 1.0
+  lambda_recon_cpg: 1.0
+  lambda_recon_mirna: 1.0
+  lambda_edge: 0.5
   lambda_cons: 0.1
   lambda_ent: 0.01
-  lambda_contractive: 0.001
-```
+  neg_sampling_ratio: 5
 
-### Training Configuration (`config/train.yaml`)
-
-```yaml
+# Training parameters
 training:
   batch_size: 32
-  learning_rate: 0.001
-  epochs: 200
-  patience: 20
-
   stage_a:
     epochs: 100
-    lr: 0.001
-
+    learning_rate: 0.001
+    weight_decay: 1e-5
   stage_b:
     epochs: 100
-    lr: 0.0001
+    learning_rate: 0.0001
+    weight_decay: 1e-5
+  early_stopping_patience: 20
+  grad_clip: 1.0
 
+# Data configuration
 data:
-  num_workers: 4
-  pin_memory: true
-
-logging:
-  log_interval: 10
-  save_interval: 20
+  features_dir: 'data/features/'
+  edges_dir: 'data/edges/'
+  use_ppi: false
+  default_edge_weight: 1.0
 ```
 
 ## Usage
@@ -178,23 +179,25 @@ logging:
 
 ```bash
 # Basic training
-python scripts/train_level1.py --config config/train.yaml
+python scripts/train_level1.py --config config/default.yaml
 
 # With custom parameters
 python scripts/train_level1.py \
-    --config config/train.yaml \
+    --config config/default.yaml \
     --batch_size 64 \
     --lr 0.001 \
     --epochs 300
+
+# K-fold cross-validation
+python scripts/train_level1.py --config config/default.yaml --kfold 5
+
+# Training with specific device
+python scripts/train_level1.py --config config/default.yaml --device cuda
 ```
 
-### Evaluation
+### Note on Evaluation
 
-```bash
-python scripts/eval_level1.py \
-    --checkpoint outputs/checkpoints/level1_best.pt \
-    --data_dir data/
-```
+Evaluation is automatically performed during training with K-fold cross-validation. Each fold is trained and evaluated, with final metrics averaged across all folds. No separate evaluation step is needed.
 
 ### Loading Saved Embeddings
 
@@ -227,9 +230,13 @@ attention_weights = pd.read_csv('outputs/tensors/attention_weights.csv')
 
 - **Node Types**: `gene`, `cpg`, `mirna`
 - **Edge Types**:
-  - `('cpg', 'maps_to', 'gene')`
-  - `('mirna', 'targets', 'gene')`
-  - `('gene', 'ppi', 'gene')` (optional)
+  - `('cpg', 'maps_to', 'gene')` - CpG sites mapped to genes
+  - `('mirna', 'targets', 'gene')` - miRNA targeting relationships
+  - `('gene', 'mapped_by', 'cpg')` - Reverse CpG mappings
+  - `('gene', 'targeted_by', 'mirna')` - Reverse miRNA targets
+  - `('gene', 'ppi', 'gene')` (optional) - Protein-protein interactions
+
+**Edge Weights**: The system supports edge weights loaded from CSV files. If no weight column is provided, edges default to weight 1.0.
 
 ### Training Protocol
 
@@ -268,28 +275,55 @@ python scripts/train_level1.py --config config/default.yaml --kfold 10
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.8+
 - PyTorch 2.0+
 - PyTorch Geometric
-- NumPy
-- Pandas
-- scikit-learn
-- PyYAML
-- tqdm
+- NumPy < 2.0 (for PyTorch compatibility)
+- Pandas >= 1.5.0
+- scikit-learn >= 1.2.0
+- PyYAML >= 6.0
+- tqdm >= 4.65.0
+- matplotlib, seaborn, plotly (visualization)
+- tensorboard, wandb (logging)
+- jupyter, jupyterlab (development)
 
 ## Installation
 
 ```bash
+# Install PyTorch with CUDA 11.8 support
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# Install PyTorch Geometric
 pip install torch-geometric
-pip install pandas numpy scikit-learn pyyaml tqdm
+
+# Install other dependencies
+pip install -r requirements.txt
 ```
 
-## Notes
+## Key Features
+
+### Two-Stage Training
+- **Stage A (Pretraining)**: Reconstruction losses only for robust feature learning
+- **Stage B (Fusion)**: Adds cross-modality attention and consistency regularization
+
+### Advanced Loss Functions
+- Feature reconstruction with automatic modality weighting
+- Edge reconstruction with configurable negative sampling
+- Consistency loss between fused and modality-specific embeddings
+- Entropy regularization to prevent attention collapse
+
+### Robust Evaluation
+- K-fold cross-validation with stratified splitting
+- Attention weight analysis and visualization
+- Comprehensive metrics (MSE, MAE, AUROC, AUPRC)
+- Embedding export for downstream analysis
+
+## Important Notes
 
 - All input data should be normalized and imputed before use
-- Edge weights default to 1.0 if not provided
+- Edge weights are supported and default to 1.0 if not provided in CSV files
 - The model uses shared hidden dimensions across node types
+- Automatic modality weighting based on node counts if not manually specified
 - Level-2 hierarchical modeling is not implemented in this version
 
 ## Citation
@@ -303,10 +337,22 @@ If you use this code, please cite:
 }
 ```
 
-## Docker
+## Docker Support
+
+The project includes simple Docker support with GPU/CPU options:
 
 ```bash
-docker run -tiv .:/workspace multimodal-gnn:1.0.0 bash
+# Make Docker script executable
+chmod +x docker_run.sh
 
-python scripts/train_level1.py --epochs 200 --batch_size 64
+# Build Docker image for GPU
+./docker_run.sh build gpu
+
+# Build for CPU
+./docker_run.sh build cpu
+
+# Run training with K-fold evaluation
+./docker_run.sh train gpu                    # Default 5-fold
+./docker_run.sh train gpu --kfold 10         # 10-fold cross-validation
+./docker_run.sh train cpu --epochs 50        # CPU training
 ```
