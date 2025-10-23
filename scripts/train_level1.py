@@ -271,63 +271,133 @@ def export_embeddings(
     print(f"Embeddings exported to {output_dir}")
 
 
-def train_model(model, train_loader, val_loader, optimizer, config, device, stage="A", fold_idx=None):
-    """Train model for one fold."""
-    best_val_loss = float("inf")
-    best_metrics = {}
+def train_stage(
+    model,
+    train_loader,
+    val_loader,
+    config,
+    device,
+    stage="A",
+    writer=None,
+    checkpoint_dir=None,
+    save_best_as=None,
+    fold_idx=None
+):
+    """
+    Train a single stage (A or B) with early stopping.
 
+    Args:
+        model: Model to train
+        train_loader: Training data loader
+        val_loader: Validation data loader (None for final training without validation)
+        config: Configuration dict
+        device: Device to train on
+        stage: "A" or "B"
+        writer: TensorBoard writer (optional)
+        checkpoint_dir: Directory to save checkpoints
+        save_best_as: Additional filename to save best model (e.g., "level1_best.pt")
+        fold_idx: Fold index for display (optional)
+
+    Returns:
+        Dictionary with best metrics
+    """
+    # Set training stage
+    model.set_training_stage(stage)
+
+    # Get stage config
+    stage_config = config["training"][f"stage_{stage.lower()}"]
+
+    # Create optimizer
+    optimizer = optim.Adam(
+        model.parameters(),
+        lr=stage_config["learning_rate"],
+        weight_decay=stage_config["weight_decay"],
+    )
+
+    # Create scheduler
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode="min",
         factor=0.5,
-        patience=config["training"][f"stage_{stage.lower()}"]["patience"],
-        verbose=False,
+        patience=stage_config["patience"],
+        verbose=(val_loader is None),  # Verbose only for final training
     )
 
-    num_epochs = config["training"][f"stage_{stage.lower()}"]["epochs"]
+    # Training loop
+    best_loss = float("inf")
+    best_metrics = {}
+    patience_counter = 0
+    num_epochs = stage_config["epochs"]
 
     fold_desc = f" - Fold {fold_idx+1}" if fold_idx is not None else ""
-    progress_bar = tqdm(range(1, num_epochs + 1), desc=f"Stage {stage}{fold_desc}", leave=False)
-    
-    for _ in progress_bar:
-        # Train
-        model.train()
-        train_loss = 0
-        batch_count = 0
+    progress_bar = tqdm(
+        range(1, num_epochs + 1),
+        desc=f"Stage {stage}{fold_desc}",
+        leave=False
+    )
 
-        for data in train_loader:
-            data = data.to(device)
-            optimizer.zero_grad()
-            output = model(data, compute_loss=True)
-            loss = output["losses"]["total"]
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
-            train_loss += loss.item()
-            batch_count += 1
+    for epoch in progress_bar:
+        # Train one epoch
+        train_metrics = train_epoch(model, train_loader, optimizer, device, epoch, stage, writer)
 
-        avg_train_loss = train_loss / batch_count
+        # Validate if val_loader provided (K-fold mode)
+        if val_loader is not None:
+            val_metrics = validate_epoch(model, val_loader, device, stage)
+            current_loss = val_metrics["loss"]
 
-        # Validate
-        val_metrics = validate_epoch(model, val_loader, device, stage)
-        
-        # Update progress bar with metrics
-        progress_bar.set_postfix({
-            'train_loss': f'{avg_train_loss:.4f}',
-            'val_loss': f'{val_metrics["loss"]:.4f}'
-        })
+            # Update progress bar
+            progress_bar.set_postfix({
+                'train_loss': f'{train_metrics["loss"]:.4f}',
+                'val_loss': f'{current_loss:.4f}'
+            })
+        else:
+            # No validation (final training mode)
+            current_loss = train_metrics["loss"]
+            progress_bar.set_postfix({'train_loss': f'{current_loss:.4f}'})
 
-        # Update scheduler
-        scheduler.step(val_metrics["loss"])
+            # Log to console for final training
+            if epoch % 10 == 0 or epoch == 1:
+                print(f"Epoch {epoch}/{num_epochs} - Train Loss: {current_loss:.4f}")
 
-        # Track best model
-        if val_metrics["loss"] < best_val_loss:
-            best_val_loss = val_metrics["loss"]
-            best_metrics = {
-                "best_train_loss": avg_train_loss,
-                "best_val_loss": val_metrics["loss"],
-                **val_metrics,
-            }
+        # Log to TensorBoard
+        if writer:
+            writer.add_scalar(f"Loss/train_{stage}", train_metrics["loss"], epoch)
+            if val_loader is not None:
+                writer.add_scalar(f"Loss/val_{stage}", val_metrics["loss"], epoch)
+
+        # Learning rate scheduling
+        scheduler.step(current_loss)
+
+        # Early stopping and checkpointing
+        if current_loss < best_loss:
+            best_loss = current_loss
+            patience_counter = 0
+
+            if val_loader is not None:
+                best_metrics = {
+                    "best_train_loss": train_metrics["loss"],
+                    "best_val_loss": val_metrics["loss"],
+                    **val_metrics,
+                }
+            else:
+                best_metrics = {"best_train_loss": train_metrics["loss"]}
+
+            # Save checkpoint
+            if checkpoint_dir:
+                checkpoint_path = save_checkpoint(
+                    model, optimizer, epoch, stage,
+                    best_metrics, config, checkpoint_dir
+                )
+
+                # Save as best model if requested
+                if save_best_as:
+                    best_path = os.path.join(checkpoint_dir, save_best_as)
+                    torch.save(torch.load(checkpoint_path), best_path)
+        else:
+            patience_counter += 1
+            if patience_counter >= config["training"]["early_stopping_patience"]:
+                print(f"Early stopping triggered at epoch {epoch}")
+                break
 
     return best_metrics
 
@@ -451,28 +521,24 @@ def train_kfold(model_class, all_graphs, config, device, k_folds=5):
         # print(f"[Val] batch size: {val_loader.batch_size}")
         # print(f"[Val] number of batches: {len(val_loader)}")
 
+        # Create checkpoint directory for this fold
+        fold_checkpoint_dir = os.path.join(
+            config["logging"]["checkpoint_dir"], f"fold_{fold_idx}"
+        )
+        Path(fold_checkpoint_dir).mkdir(parents=True, exist_ok=True)
+
         # Stage A: Pretrain
         print(f"Training Stage A...")
-        model.set_training_stage("A")
-        optimizer_a = optim.Adam(
-            model.parameters(),
-            lr=config["training"]["stage_a"]["learning_rate"],
-            weight_decay=config["training"]["stage_a"]["weight_decay"],
-        )
-        stage_a_results = train_model(
-            model, train_loader, val_loader, optimizer_a, config, device, "A", fold_idx
+        stage_a_results = train_stage(
+            model, train_loader, val_loader, config, device,
+            stage="A", checkpoint_dir=fold_checkpoint_dir, fold_idx=fold_idx
         )
 
         # Stage B: Fusion
         print(f"Training Stage B...")
-        model.set_training_stage("B")
-        optimizer_b = optim.Adam(
-            model.parameters(),
-            lr=config["training"]["stage_b"]["learning_rate"],
-            weight_decay=config["training"]["stage_b"]["weight_decay"],
-        )
-        stage_b_results = train_model(
-            model, train_loader, val_loader, optimizer_b, config, device, "B", fold_idx
+        stage_b_results = train_stage(
+            model, train_loader, val_loader, config, device,
+            stage="B", checkpoint_dir=fold_checkpoint_dir, fold_idx=fold_idx
         )
 
         # Store fold metrics
@@ -492,15 +558,7 @@ def train_kfold(model_class, all_graphs, config, device, k_folds=5):
             f"Fold {fold_idx + 1} - Val Loss: {stage_b_results['best_val_loss']:.4f}, "
             f"Edge AUROC: {eval_metrics['edge_auroc']:.4f}"
         )
-
-        # Save fold checkpoint
-        checkpoint_dir = os.path.join(
-            config["logging"]["checkpoint_dir"], f"fold_{fold_idx}"
-        )
-        Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
-        save_checkpoint(
-            model, optimizer_b, 0, "B", eval_metrics, config, checkpoint_dir
-        )
+        # Checkpoint already saved in train_stage function
 
     # Calculate averaged metrics
     avg_metrics = {
@@ -643,8 +701,6 @@ def main():
         MultiModalGNNWithDecoders, all_graphs, config, device, k_folds=args.kfold
     )
 
-    # exit(1)
-
     print("\n=== TRAINING FINAL MODEL ON ALL PATIENTS ===")
 
     # Create fresh model for final training on all data
@@ -671,127 +727,20 @@ def main():
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Total trainable parameters: {num_params:,}")
 
-    # Create optimizer
-    optimizer = optim.Adam(
-        model.parameters(),
-        lr=config["training"]["stage_a"]["learning_rate"],
-        weight_decay=config["training"]["stage_a"]["weight_decay"],
-    )
-
-    # Learning rate scheduler
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode="min",
-        factor=0.5,
-        patience=config["training"]["stage_a"]["patience"],
-        verbose=True,
-    )
-
     # Training Stage A: Pretrain with reconstruction
     print("\n=== Stage A: Pretraining with Reconstruction ===")
-    model.set_training_stage("A")
-
-    best_train_loss = float("inf")
-    patience_counter = 0
-
-    for epoch in tqdm(range(1, config["training"]["stage_a"]["epochs"] + 1), desc="Stage A Training", leave=False):
-        # Train
-        train_metrics = train_epoch(
-            model, train_loader, optimizer, device, epoch, "A", writer
-        )
-
-        # Log metrics
-        print(f"Epoch {epoch} - Train Loss: {train_metrics['loss']:.4f}, ")
-
-        writer.add_scalar("Loss/train_A", train_metrics["loss"], epoch)
-
-        # Learning rate scheduling
-        scheduler.step(train_metrics["loss"])
-
-        # Early stopping
-        if train_metrics["loss"] < best_train_loss:
-            best_train_loss = train_metrics["loss"]
-            patience_counter = 0
-
-            # Save best checkpoint
-            save_checkpoint(
-                model,
-                optimizer,
-                epoch,
-                "A",
-                train_metrics,
-                config,
-                config["logging"]["checkpoint_dir"],
-            )
-        else:
-            patience_counter += 1
-            if patience_counter >= config["training"]["early_stopping_patience"]:
-                print(f"Early stopping triggered at epoch {epoch}")
-                break
+    train_stage(
+        model, train_loader, val_loader=None, config=config, device=device,
+        stage="A", writer=writer, checkpoint_dir=config["logging"]["checkpoint_dir"]
+    )
 
     # Training Stage B: Fusion with attention
     print("\n=== Stage B: Fusion with Attention ===")
-    model.set_training_stage("B")
-
-    # Reset optimizer for stage B
-    optimizer = optim.Adam(
-        model.parameters(),
-        lr=config["training"]["stage_b"]["learning_rate"],
-        weight_decay=config["training"]["stage_b"]["weight_decay"],
+    train_stage(
+        model, train_loader, val_loader=None, config=config, device=device,
+        stage="B", writer=writer, checkpoint_dir=config["logging"]["checkpoint_dir"],
+        save_best_as="level1_best.pt"
     )
-
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode="min",
-        factor=0.5,
-        patience=config["training"]["stage_b"]["patience"],
-        verbose=True,
-    )
-
-    best_train_loss = float("inf")
-    patience_counter = 0
-
-    for epoch in tqdm(range(1, config["training"]["stage_b"]["epochs"] + 1), desc="Stage B Training", leave=False):
-        # Train
-        train_metrics = train_epoch(
-            model, train_loader, optimizer, device, epoch, "B", writer
-        )
-
-        # Log metrics
-        print(f"Epoch {epoch} - Train Loss: {train_metrics['loss']:.4f}, ")
-
-        writer.add_scalar("Loss/train_B", train_metrics["loss"], epoch)
-
-        # Learning rate scheduling
-        scheduler.step(train_metrics["loss"])
-
-        # Early stopping
-        if train_metrics["loss"] < best_train_loss:
-            best_train_loss = train_metrics["loss"]
-            patience_counter = 0
-
-            # Save best checkpoint
-            checkpoint_path = save_checkpoint(
-                model,
-                optimizer,
-                epoch,
-                "B",
-                train_metrics,
-                config,
-                config["logging"]["checkpoint_dir"],
-            )
-
-            # Also save as best model
-            best_path = os.path.join(
-                config["logging"]["checkpoint_dir"], "level1_best.pt"
-            )
-            torch.save(torch.load(checkpoint_path), best_path)
-
-        else:
-            patience_counter += 1
-            if patience_counter >= config["training"]["early_stopping_patience"]:
-                print(f"Early stopping triggered at epoch {epoch}")
-                break
 
     # Export embeddings for ALL patients
     print("\nExporting embeddings for all patients...")

@@ -141,9 +141,16 @@ Where `r` indexes edge types (relations).
 # Gene embeddings: [N_genes, 256]
 gene_emb = node_embeddings['gene']
 
-# Apply separate projections
-mrna_emb = linear_mrna(gene_emb)  # [N_genes, 256]
-cnv_emb = linear_cnv(gene_emb)    # [N_genes, 256]
+# Apply separate projections (from ModalityPooling module)
+mrna_emb = self.mrna_projection(gene_emb)  # [N_genes, 256]
+cnv_emb = self.cnv_projection(gene_emb)    # [N_genes, 256]
+```
+
+**Implementation:** (`src/models/modality_pool.py`)
+```python
+if use_projection_heads:
+    self.mrna_projection = nn.Linear(hidden_size, hidden_size)
+    self.cnv_projection = nn.Linear(hidden_size, hidden_size)
 ```
 
 #### 3.2 Pooling Strategies
@@ -468,13 +475,15 @@ Where:
 
 ### K-Fold Cross-Validation
 
+**Important:** K-fold cross-validation applies to **BOTH Stage A and Stage B**. Each fold trains sequentially through both stages on the same train/validation split.
+
 **Workflow:**
 
 1. **Split patients into K folds** (default K=5)
    - Uses `sklearn.model_selection.KFold`
    - Stratification optional (not used by default)
 
-2. **For each fold:**
+2. **For each fold** (both stages trained on same fold):
    ```python
    for fold in range(K):
        # a. Create fresh model
@@ -782,6 +791,12 @@ z_cnv = POOL({W_cnv · h_v | v ∈ V_gene}, batch)
 z_cpg = POOL({h_v | v ∈ V_cpg}, batch)
 z_mirna = POOL({h_v | v ∈ V_mirna}, batch)
 ```
+
+Where:
+- `W_mrna`: Projection head for mRNA (`self.mrna_projection` in code)
+- `W_cnv`: Projection head for CNV (`self.cnv_projection` in code)
+- `POOL`: Pooling operation (mean or attention-based)
+- `V_gene`, `V_cpg`, `V_mirna`: Sets of nodes by type
 
 **3. Attention Fusion (Stage B):**
 ```
