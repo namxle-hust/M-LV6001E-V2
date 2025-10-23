@@ -14,26 +14,177 @@
 
 ## Overview
 
-The Level 1 model is a multi-modal heterogeneous graph neural network (GNN) designed for integrating cancer genomics data across four modalities:
-- **mRNA expression**: Gene expression levels
-- **Copy Number Variation (CNV)**: Gene copy number alterations
-- **DNA methylation**: CpG site methylation levels
-- **miRNA expression**: microRNA expression levels
+The Level 1 model is a **multi-modal heterogeneous graph neural network (GNN)** for integrating cancer genomics data. It represents each patient as a heterogeneous graph and learns patient-level embeddings through graph neural networks.
 
-### Key Innovation
+### Supported Modalities
 
-The model treats each patient as a **heterogeneous graph** with three node types (genes, CpG sites, miRNAs) connected by biological relationships. It learns to:
-1. Encode node-level information through graph convolutions
-2. Pool nodes into modality-specific embeddings
-3. Fuse modalities via learned attention weights
-4. Reconstruct original features to ensure biological meaningfulness
+- **mRNA expression**: Gene expression levels (transcriptomics)
+- **Copy Number Variation (CNV)**: Gene copy number alterations (genomics)
+- **DNA methylation**: CpG site methylation levels (epigenomics)
+- **miRNA expression**: microRNA expression levels (small RNA-seq)
+
+---
+
+## Why Heterogeneous Graphs?
+
+### The Challenge: Multi-Omics Integration
+
+Traditional approaches to multi-omics integration face several challenges:
+
+❌ **Concatenation**: Simply concatenating features loses biological relationships
+❌ **Feature selection**: Selecting top features discards interactions
+❌ **Separate models**: Training separate models for each modality misses cross-modal patterns
+❌ **Homogeneous graphs**: Treating all nodes the same ignores biological roles
+
+### The HeteroGraph Solution
+
+A **heterogeneous graph** naturally represents the biological structure of multi-omics data:
+
+✅ **Different node types**: Genes, CpG sites, and miRNAs have different biological roles
+✅ **Typed relationships**: CpG methylation affects gene expression (regulatory relationship)
+✅ **Structural information**: Gene-gene interactions (PPI networks) provide context
+✅ **Unified representation**: All modalities integrated in a single coherent structure
+
+### What is a Heterogeneous Graph?
+
+A heterogeneous graph `G = (V, E, τ, φ)` contains:
+- **V**: Set of nodes (genes, CpGs, miRNAs)
+- **E**: Set of edges (regulatory relationships, interactions)
+- **τ**: Node type function `τ: V → T` (maps each node to its type)
+- **φ**: Edge type function `φ: E → R` (maps each edge to its relationship type)
+
+**Key property**: Different node/edge types can have different feature dimensions and transformation functions.
+
+---
+
+## Project Architecture: Per-Patient HeteroGraphs
+
+### Core Design Decision
+
+**Each patient is represented as a separate heterogeneous graph.**
+
+This means:
+- Patient 1 → HeteroGraph 1 (genes, CpGs, miRNAs with Patient 1's feature values)
+- Patient 2 → HeteroGraph 2 (genes, CpGs, miRNAs with Patient 2's feature values)
+- Patient N → HeteroGraph N (genes, CpGs, miRNAs with Patient N's feature values)
+
+**Graph structure** (nodes and edges) is **shared** across all patients, but **node features** are patient-specific.
+
+### Why Per-Patient Graphs?
+
+**Advantages:**
+1. **Patient-specific features**: Each graph contains that patient's expression/methylation values
+2. **Batch processing**: Can batch multiple patient graphs for efficient training
+3. **Straightforward inference**: Feed one graph → get one patient embedding
+4. **Modality integration**: All modalities for a patient in one unified structure
+
+**What this approach does NOT do:**
+- ❌ Model patient-patient relationships (no edges between patients)
+- ❌ Population-level graph structure (that would be Level 2)
+- ❌ Transfer learning across patients (graphs are independent)
+
+### Graph Construction Pipeline
+
+```
+Input Data (TSV files)                      Per-Patient Graphs
+├── genes_expr.tsv [genes × patients]  →   Patient 1: Graph with gene features = expr[:, 1]
+├── genes_cnv.tsv [genes × patients]   →   Patient 1: Gene features += cnv[:, 1]
+├── cpgs.tsv [cpgs × patients]         →   Patient 1: CpG features = methylation[:, 1]
+└── mirnas.tsv [mirnas × patients]     →   Patient 1: miRNA features = mirna_expr[:, 1]
+
+Edge Structure (CSV files) - SHARED across all patients
+├── gene_cpg.csv        → CpG-gene mappings (same for all patients)
+├── gene_mirna.csv      → miRNA-gene targets (same for all patients)
+└── gene_gene.csv       → Gene-gene PPI (optional, same for all patients)
+```
+
+**Key insight**: The graph topology (which nodes connect to which) is fixed and biological. Only the node feature values change per patient.
+
+### Visual Representation: Per-Patient HeteroGraph
+
+```
+Single Patient Graph (e.g., Patient_001):
+
+    CpG Nodes (methylation)          Gene Nodes (mRNA + CNV)        miRNA Nodes (expression)
+    ○ cg00000029 [β=0.45]            ● BRCA1 [expr=2.1, cnv=0]      ◆ hsa-mir-21 [expr=5.3]
+    ○ cg00000165 [β=0.62]            ● TP53 [expr=1.8, cnv=-1]      ◆ hsa-mir-155 [expr=3.2]
+    ○ cg00000236 [β=0.31]            ● PTEN [expr=0.9, cnv=1]       ◆ hsa-mir-34a [expr=4.1]
+         |    |                             |    |                        |    |
+         |    └─────(maps_to)──────────────┘    |                        |    |
+         └──────────(maps_to)─────────────────────┘                      |    |
+                                                  └──────(targeted_by)────┘    |
+                                                  └───────(targeted_by)────────┘
+
+Node Types:
+- Circles (○): CpG sites with methylation β-values [0-1]
+- Filled circles (●): Genes with 2-channel features [mRNA expression, CNV]
+- Diamonds (◆): miRNAs with expression values
+
+Edge Types:
+- (cpg, maps_to, gene): CpG sites regulate genes via promoter/enhancer methylation
+- (mirna, targets, gene): miRNAs post-transcriptionally regulate gene expression
+- (gene, ppi, gene): Protein-protein interactions (optional)
+```
+
+**All patients share the same graph structure** (same nodes, same edges), but **each patient has different feature values** based on their omics measurements.
+
+### Batching Multiple Patients
+
+```
+Batch of 3 patients → 3 separate graphs:
+
+Graph 1 (Patient_001):     Graph 2 (Patient_002):     Graph 3 (Patient_003):
+  Nodes: genes, cpgs, mirnas   Nodes: genes, cpgs, mirnas   Nodes: genes, cpgs, mirnas
+  Edges: [same structure]      Edges: [same structure]      Edges: [same structure]
+  Features: Patient 1 values   Features: Patient 2 values   Features: Patient 3 values
+
+PyTorch Geometric batches these into a single disconnected graph:
+  - Total nodes = 3 × (N_genes + N_cpgs + N_mirnas)
+  - Each graph's nodes have a batch index: [0, 0, ..., 1, 1, ..., 2, 2, ...]
+  - No edges connect different patients (graphs remain independent)
+  - Pooling operations use batch indices to aggregate per patient
+```
+
+---
+
+## Key Innovation
+
+The model treats each patient as a **heterogeneous graph** with three node types connected by biological relationships. It learns to:
+
+1. **Encode node-level information** through heterogeneous graph convolutions
+2. **Pool nodes into modality-specific embeddings** (genes → mRNA + CNV, CpGs → methylation, miRNAs → miRNA)
+3. **Fuse modalities via learned attention** weights (patient-specific importance)
+4. **Reconstruct original features** to ensure biological meaningfulness (self-supervised)
 
 ### Design Philosophy
 
-- **Structure-aware**: Leverages biological networks (CpG→gene mappings, miRNA→gene targets)
+- **Structure-aware**: Leverages known biological networks (CpG→gene regulation, miRNA→gene targeting)
+- **Heterogeneous**: Different node types have different roles and transformations
 - **Modality-specific processing**: Each modality has its own pooling and decoding pathway
 - **Attention-based fusion**: Learns which modalities are most informative for each patient
 - **Self-supervised**: Uses reconstruction and consistency losses for training without labels
+- **Interpretable**: Attention weights show which modalities drive the patient embedding
+
+### Comparison: Level 1 vs Alternative Approaches
+
+| Approach | Graph per Patient? | Heterogeneous? | Cross-Patient Edges? | Use Case |
+|----------|-------------------|----------------|---------------------|----------|
+| **Level 1 (This Project)** | ✅ Yes | ✅ Yes (3 node types) | ❌ No | Patient embedding, unsupervised learning |
+| Homogeneous GNN | ✅ Yes | ❌ No (all nodes same) | ❌ No | Simple graph learning |
+| Population Graph | ❌ No (1 big graph) | Depends | ✅ Yes | Patient similarity, clustering |
+| Feature Concatenation | ❌ No graph | ❌ No | ❌ No | Traditional ML baselines |
+| Multi-View Learning | ❌ No graph | ❌ No | ❌ No | Separate models per modality |
+
+**Why Level 1 is different:**
+- **Per-patient graphs**: Each patient gets their own graph with their own measurements
+- **Heterogeneous**: Different node types (genes ≠ CpGs ≠ miRNAs) with type-specific processing
+- **Biological structure**: Graph topology encodes known biology (CpG regulation, miRNA targeting)
+- **No patient-patient edges**: Patients are independent (no population structure modeled)
+
+**Future work (Level 2):**
+- Add patient-patient edges based on clinical similarity
+- Build hierarchical graphs (genes → pathways → patients)
+- Model population-level structure for transfer learning
 
 ---
 
@@ -971,37 +1122,98 @@ kfold.stratified: false
 
 ## Summary
 
-The Level 1 model provides a comprehensive framework for multi-modal genomics integration:
+### TL;DR: What is Level 1?
 
-✅ **Heterogeneous Graph Structure**: Naturally represents biological relationships
-✅ **Modality-Specific Processing**: Separate pathways for each data type
-✅ **Learned Attention Fusion**: Patient-specific modality importance
-✅ **Self-Supervised Learning**: No labels required for training
-✅ **Robust Evaluation**: K-fold cross-validation with multiple metrics
-✅ **Interpretable Outputs**: Attention weights reveal modality importance
+**One sentence**: A per-patient heterogeneous graph neural network that integrates multi-omics data (mRNA, CNV, methylation, miRNA) through learned attention fusion and self-supervised reconstruction.
 
-### Key Innovations
+**Core idea**: Each patient → one HeteroGraph with biological structure → patient embedding via GNN → attention-weighted modality fusion.
 
-1. **Dual-channel gene nodes** (mRNA + CNV) with separate decoding
-2. **Two-stage training** (reconstruction → fusion)
-3. **Attention-based modality fusion** with entropy regularization
-4. **Consistency loss** to maintain modality coherence
+---
 
-### Limitations
+### Comprehensive Overview
 
-- Single-patient graphs (no inter-patient relationships)
-- Fixed graph structure (no learned edges)
-- Requires all 4 modalities for each patient
-- No hierarchical modeling (Level 2 not implemented)
-- No transfer learning across cancer types
+The Level 1 model provides a **per-patient heterogeneous graph** framework for multi-modal genomics integration:
 
-### Future Extensions (Level 2)
+✅ **Per-Patient HeteroGraphs**:
+- Each patient = separate graph with patient-specific omics measurements
+- Shared biological structure (same nodes/edges across patients)
+- 3 node types: genes, CpG sites, miRNAs
 
-- **Population graph**: Model relationships across patients
-- **Hierarchical modeling**: genes → pathways → biological processes → cancer types
-- **Multi-task learning**: Joint training on survival, classification, drug response
-- **Transfer learning**: Pre-train on large cohort, fine-tune on target dataset
-- **Learned graph structure**: Discover new biological relationships
+✅ **Heterogeneous Graph Structure**:
+- Type-specific message passing (HeteroGAT or HeteroRGCN)
+- Naturally represents biological relationships
+- Multiple edge types (CpG regulation, miRNA targeting, PPI)
+
+✅ **Modality-Specific Processing**:
+- Separate projection heads for mRNA vs CNV (both from gene nodes)
+- Type-aware pooling: nodes → modality embeddings
+- Independent decoders for reconstruction
+
+✅ **Learned Attention Fusion**:
+- Patient-specific importance weights for each modality
+- Temperature-scaled softmax with entropy regularization
+- Interpretable: attention shows which omics layer drives the embedding
+
+✅ **Self-Supervised Learning**:
+- No labels required (reconstruction + consistency losses)
+- Stage A: Pretrain with feature/edge reconstruction
+- Stage B: Add attention fusion with consistency loss
+
+✅ **Robust Evaluation**:
+- K-fold cross-validation (both stages validated per fold)
+- Exportable embeddings for downstream tasks
+- Attention weight analysis for interpretability
+
+### Key Technical Innovations
+
+1. **Dual-channel gene nodes** with separate projection heads and decoders (mRNA ≠ CNV despite sharing nodes)
+2. **Two-stage training** (Stage A: reconstruction → Stage B: attention fusion)
+3. **Heterogeneous message passing** via HeteroGAT (multi-head attention) or HeteroRGCN
+4. **Type-aware pooling** from node embeddings → modality embeddings
+5. **Attention-based fusion** with entropy regularization to prevent collapse
+6. **Consistency loss** between fused and modality-specific embeddings
+
+### What Makes This Approach Different?
+
+| Aspect | Level 1 (This Project) | Traditional Approaches |
+|--------|------------------------|----------------------|
+| **Graph Structure** | Per-patient HeteroGraphs | No graphs OR single population graph |
+| **Node Types** | 3 types (genes, CpGs, miRNAs) | Homogeneous (all same) OR no graph |
+| **Modality Integration** | GNN + attention fusion | Concatenation OR separate models |
+| **Biological Knowledge** | Encoded in graph edges | Ignored OR manual feature engineering |
+| **Patient Relationships** | Independent (no cross-patient edges) | Sometimes modeled (population graphs) |
+| **Output** | Patient embeddings + attention weights | Features OR predictions only |
+
+### Current Scope and Limitations
+
+**What Level 1 DOES:**
+✅ Per-patient omics integration via HeteroGraphs
+✅ Self-supervised learning (no labels needed)
+✅ Patient-level embeddings for downstream tasks
+✅ Interpretable attention weights
+✅ Batch processing multiple patients
+
+**What Level 1 does NOT do:**
+❌ Model patient-patient relationships (no population graph)
+❌ Learn graph structure (edges are predefined biology)
+❌ Handle missing modalities (assumes complete data)
+❌ Hierarchical modeling (flat gene-level only)
+❌ Multi-task learning (embedding only, no supervised tasks)
+❌ Transfer learning across cancer types
+
+### Future Directions (Level 2+)
+
+**Level 2: Population + Hierarchy**
+- Patient-patient edges (clinical/genomic similarity)
+- Hierarchical nodes (genes → pathways → processes)
+- Population-level graph structure
+
+**Methodological Extensions**
+- Missing modality imputation or dropout
+- Dynamic edge learning (discover relationships)
+- Multi-task learning (survival, classification)
+- Transfer learning across cohorts
+- Temporal modeling for longitudinal data
 
 ### Related Documentation
 
