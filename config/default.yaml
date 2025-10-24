@@ -70,10 +70,15 @@ losses:
     cpg: null
     mirna: null
 
-  # Consistency loss
+  # Projection training (Stage A only)
+  # NEW: Ensures projection heads learn meaningful representations in Stage A
+  lambda_projection: 0.1  # Weight for projection reconstruction loss
+  lambda_proj_reg: 0.01   # Weight for projection diversity regularization
+
+  # Consistency loss (Stage B only)
   lambda_cons: 0.1
 
-  # Entropy regularization
+  # Entropy regularization (Stage B only)
   lambda_ent: 0.01
 
   # Contrastive regularization (optional)

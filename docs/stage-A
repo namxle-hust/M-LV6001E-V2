@@ -1,0 +1,258 @@
+Based on the codebase, here's a comprehensive explanation of Stage A (Pretraining/Reconstruction) training:
+Overview
+Stage A is the pretraining phase where the model learns robust node embeddings by reconstructing the original input features and graph structure. This stage focuses exclusively on self-supervised reconstruction losses without using attention-based fusion.
+Goals of Stage A
+Learn biologically meaningful node embeddings that preserve:
+Original feature values (mRNA, CNV, methylation, miRNA)
+Graph structure (CpG-gene mappings, miRNA-gene targets)
+Initialize encoder weights before introducing the complexity of multi-modal fusion
+Establish a strong foundation for Stage B's attention mechanism
+Active Components in Stage A
+1. Heterogeneous Graph Encoder
+Type: HeteroGAT (Graph Attention) or HeteroRGCN (Relational GCN)
+Input: Raw node features
+Gene nodes: [mRNA, CNV] (2 channels concatenated)
+CpG nodes: [methylation] (1 channel)
+miRNA nodes: [expression] (1 channel)
+Output: Dense embeddings for all nodes (default: 256-dimensional)
+Architecture (default HeteroGAT):
+Input Projection → GAT Layer 1 (4 heads) → GAT Layer 2 (4 heads) → GAT Layer 3 (1 head)
+Operations per layer:
+Multi-head attention aggregation
+Layer normalization
+ReLU activation
+Dropout (0.2)
+2. Modality Pooling
+Purpose: Aggregate node-level embeddings → modality-level embeddings
+Projection heads:
+mrna_projection: Linear(256 → 256) applied to gene embeddings
+cnv_projection: Linear(256 → 256) applied to gene embeddings
+CpG/miRNA: Direct pooling (no projection)
+Pooling strategy: Mean pooling (default)
+Output: 4 modality embeddings per patient [batch_size, 256]
+3. Feature Decoders
+Each decoder is a small MLP that reconstructs original features:
+Decoder	Architecture	Input	Output
+mRNA decoder	Linear(256→128) → ReLU → Linear(128→64) → ReLU → Linear(64→1)	Gene embeddings	mRNA values
+CNV decoder	Same as mRNA	Gene embeddings	CNV values
+CpG decoder	Linear(256→128) → ReLU → Linear(128→1)	CpG embeddings	Methylation β-values
+miRNA decoder	Linear(256→128) → ReLU → Linear(128→1)	miRNA embeddings	miRNA expression
+4. Edge Decoder
+Type: Inner product decoder
+Purpose: Reconstruct graph edges via link prediction
+Operation: For edge (u, v): score = sigmoid(z_u^T · z_v)
+Edge types: (cpg, maps_to, gene) and (mirna, targets, gene)
+5. Fusion Mechanism (Simplified in Stage A)
+No attention in Stage A
+Fused embedding = simple average of 4 modality embeddings:
+h_fused = mean([z_mrna, z_cnv, z_cpg, z_mirna])
+Loss Functions in Stage A
+Total Loss Formula
+L_StageA = λ_mrna · L_recon(mRNA) 
+         + λ_cnv · L_recon(CNV)
+         + λ_cpg · L_recon(CpG) 
+         + λ_mirna · L_recon(miRNA)
+         + λ_edge · L_edge
+1. Feature Reconstruction Loss (per modality)
+Formula:
+L_recon(modality) = (1/N) Σ ||f_original - f_reconstructed||²
+Implementation (recon_feature.py:187-256):
+mRNA loss: MSE between original mRNA values and decoder output
+L_mrna = MSE(mrna_decoder(gene_embeddings), original_mrna)
+CNV loss: MSE between original CNV values and decoder output
+L_cnv = MSE(cnv_decoder(gene_embeddings), original_cnv)
+CpG loss: MSE between original methylation and decoder output
+miRNA loss: MSE between original miRNA expression and decoder output
+Key point: Despite gene nodes having 2-channel input [mRNA, CNV], the decoders are separate, allowing the model to disentangle these modalities. Default weights: All λ = 1.0
+2. Edge Reconstruction Loss
+Formula:
+L_edge = (L_pos + L_neg) / 2
+L_pos = -(1/|E|) Σ log(σ(z_u^T z_v))  for (u,v) ∈ E
+L_neg = -(1/|E_neg|) Σ log(1 - σ(z_u^T z_v))  for (u,v) ∈ E_neg
+Implementation (recon_edge.py:144-221):
+For each edge type (e.g., (cpg, maps_to, gene)):
+Get node embeddings for source and destination
+Compute positive edge scores via inner product
+Sample 5× negative edges (configurable via neg_sampling_ratio)
+Compute negative edge scores
+Binary cross-entropy loss
+Negative sampling: Randomly sample non-existent edges while avoiding duplicates Default weight: λ_edge = 0.5 Metrics tracked: AUROC and AUPRC for link prediction quality
+Training Configuration for Stage A
+From default.yaml:93-100 and train_level1.py:274-403:
+Hyperparameters
+stage_a:
+  epochs: 100
+  learning_rate: 0.001
+  weight_decay: 1e-5
+  patience: 15  # For learning rate scheduler
+Optimizer
+Type: Adam
+Learning rate: 0.001
+Weight decay: 1e-5 (L2 regularization)
+Learning Rate Scheduler
+Type: ReduceLROnPlateau
+Factor: 0.5 (halve LR when plateau detected)
+Patience: 15 epochs
+Metric: Validation loss
+Regularization
+Dropout: 0.2 after each encoder layer
+Layer Normalization: In encoder and decoders
+Gradient Clipping: Max norm = 1.0
+Weight Decay: 1e-5
+Early Stopping: Patience = 20 epochs
+Batch Size
+Default: 32 patients per batch
+Batching: PyTorch Geometric's Batch.from_data_list() creates a disconnected graph
+Training Loop (Stage A)
+From train_level1.py:63-123:
+Per Epoch:
+for epoch in range(1, epochs+1):
+    # 1. Training
+    for batch in train_loader:
+        # Forward pass
+        output = model(batch, compute_loss=True)
+        loss = output['losses']['total']
+        
+        # Backward pass
+        loss.backward()
+        
+        # Gradient clipping
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        
+        # Optimizer step
+        optimizer.step()
+        optimizer.zero_grad()
+    
+    # 2. Validation (if K-fold mode)
+    if val_loader:
+        val_metrics = validate(model, val_loader)
+        current_loss = val_metrics['loss']
+    
+    # 3. Learning rate scheduling
+    scheduler.step(current_loss)
+    
+    # 4. Early stopping check
+    if current_loss < best_loss:
+        best_loss = current_loss
+        save_checkpoint(model)
+        patience_counter = 0
+    else:
+        patience_counter += 1
+        if patience_counter >= early_stopping_patience:
+            break  # Early stopping triggered
+Data Flow in Stage A
+Forward Pass (multimodal_gnn.py:74-139)
+1. Input: Batched HeteroData
+   ├─ gene nodes: [N_genes_batch, 2]  (mRNA + CNV)
+   ├─ cpg nodes: [N_cpg_batch, 1]
+   └─ mirna nodes: [N_mirna_batch, 1]
+
+2. Encoder (HeteroGAT)
+   ├─ Input projection per node type
+   ├─ 3 GAT layers with multi-head attention
+   └─ Output: node_embeddings{'gene': [N_genes, 256], 'cpg': [...], 'mirna': [...]}
+
+3. Modality Pooling
+   ├─ Gene embeddings → mrna_projection → pool → z_mrna [batch_size, 256]
+   ├─ Gene embeddings → cnv_projection → pool → z_cnv [batch_size, 256]
+   ├─ CpG embeddings → pool → z_cpg [batch_size, 256]
+   └─ miRNA embeddings → pool → z_mirna [batch_size, 256]
+
+4. Fusion (Stage A: simple averaging)
+   └─ h_fused = mean([z_mrna, z_cnv, z_cpg, z_mirna])
+
+5. Feature Reconstruction
+   ├─ mrna_decoder(gene_emb) → f̂_mrna [N_genes, 1]
+   ├─ cnv_decoder(gene_emb) → f̂_cnv [N_genes, 1]
+   ├─ cpg_decoder(cpg_emb) → f̂_cpg [N_cpg, 1]
+   └─ mirna_decoder(mirna_emb) → f̂_mirna [N_mirna, 1]
+
+6. Edge Reconstruction
+   ├─ For (cpg, maps_to, gene):
+   │   ├─ Positive scores: σ(z_cpg[src] · z_gene[dst])
+   │   └─ Negative scores: σ(z_cpg[neg_src] · z_gene[neg_dst])
+   └─ For (mirna, targets, gene): same process
+
+7. Loss Computation
+   └─ L_total = L_recon + λ_edge · L_edge
+K-Fold Cross-Validation in Stage A
+From train_level1.py:482-610:
+Process
+for fold_idx in range(K):
+    # 1. Create fresh model
+    model = MultiModalGNNWithDecoders(config)
+    
+    # 2. Split data
+    train_loader, val_loader = data_module.get_fold(fold_idx)
+    
+    # 3. Train Stage A
+    model.set_training_stage('A')
+    best_metrics_A = train_stage(model, train_loader, val_loader, stage='A')
+    
+    # 4. Save checkpoint
+    save_checkpoint(model, fold=fold_idx, stage='A')
+    
+    # 5. Continue to Stage B (using same model)...
+Important: Each fold gets a fresh model instance to ensure independence.
+Outputs from Stage A
+1. Checkpoints
+Saved to outputs/checkpoints/fold_X/checkpoint_stageA_epochYYY.pt:
+{
+    'epoch': 100,
+    'stage': 'A',
+    'model_state_dict': {...},
+    'optimizer_state_dict': {...},
+    'metrics': {
+        'best_train_loss': 0.125,
+        'best_val_loss': 0.142,
+        'recon_mse': {'mrna': 0.03, 'cnv': 0.04, 'cpg': 0.05, 'mirna': 0.06},
+        'edge_auroc': 0.78
+    },
+    'config': {...}
+}
+2. Logged Metrics (TensorBoard)
+Loss/train_A: Training loss per batch
+Loss/val_A: Validation loss per epoch
+Reconstruction MSE per modality
+Edge AUROC/AUPRC
+3. Trained Encoder
+Pretrained weights for all encoder layers
+Ready for Stage B: Attention mechanism will be added on top
+What Stage A Achieves
+✅ Biologically meaningful embeddings: Node embeddings preserve feature information
+✅ Structure-aware representations: Embeddings capture graph topology via edge loss
+✅ Modality disentanglement: Separate mRNA and CNV despite shared gene nodes
+✅ Initialization for fusion: Strong foundation for Stage B's attention mechanism
+Key Differences: Stage A vs Stage B
+Aspect	Stage A	Stage B
+Fusion	Simple average	Attention-weighted
+Active components	Encoder + Pooling + Decoders	All components + Attention
+Loss terms	Reconstruction + Edge	+ Consistency + Entropy
+Learning rate	0.001	0.0001 (10× smaller)
+Goal	Learn embeddings	Learn fusion weights
+Attention enabled	❌ No	✅ Yes
+Practical Example
+For a batch of 32 patients with 10,000 genes, 50,000 CpGs, 1,000 miRNAs:
+Input:
+├─ Batch size: 32 patients
+├─ Gene nodes: 32 × 10,000 = 320,000 nodes with features [mRNA, CNV]
+├─ CpG nodes: 32 × 50,000 = 1,600,000 nodes with methylation values
+└─ miRNA nodes: 32 × 1,000 = 32,000 nodes with expression values
+
+Stage A Processing:
+├─ Encoder: 320K + 1.6M + 32K nodes → 256-dim embeddings
+├─ Pooling: Per-patient aggregation → 32 × 4 modality embeddings
+├─ Decoders: Reconstruct original 320K + 1.6M + 32K features
+├─ Loss: MSE(original, reconstructed) + Edge BCE
+└─ Backprop: Update encoder weights to minimize reconstruction error
+
+Output:
+└─ Pretrained encoder ready for Stage B fusion training
+Summary
+Stage A is the reconstruction pretraining phase where:
+The heterogeneous graph encoder learns to produce embeddings that preserve both feature values and graph structure
+Separate decoders for each modality (mRNA, CNV, CpG, miRNA) ensure modality-specific information is retained
+Edge reconstruction with negative sampling ensures embeddings capture biological relationships
+Training uses self-supervised losses only (no labels required)
+The resulting pretrained encoder provides a strong foundation for Stage B's attention-based fusion
+This two-stage approach (pretrain → fusion) prevents the attention mechanism from collapsing early and ensures the model learns robust representations before attempting cross-modal integration.
