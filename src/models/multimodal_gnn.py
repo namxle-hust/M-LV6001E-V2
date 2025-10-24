@@ -129,10 +129,8 @@ class MultiModalHeteroGNN(nn.Module):
             output["attention_weights"] = attention_weights
             output["attention_dict"] = attention_dict
         else:
-            # Stage A: Simple averaging for fused embedding
-            embeddings_list = list(modality_embeddings.values())
-            fused_embedding = torch.stack(embeddings_list, dim=0).mean(dim=0)
-            output["fused_embedding"] = fused_embedding
+            # Stage A: No fusion needed (only using modality-specific embeddings)
+            output["fused_embedding"] = None
             output["attention_weights"] = None
             output["attention_dict"] = None
 
@@ -160,6 +158,10 @@ class MultiModalGNNWithDecoders(nn.Module):
         from ..losses.recon_feature import MultiModalFeatureDecoders
         from ..losses.recon_edge import EdgeReconstructionLoss
         from ..losses.consistency import ConsistencyLoss, EntropyRegularization
+        from ..losses.projection_loss import (
+            ProjectionReconstructionLoss,
+            ProjectionRegularizationLoss
+        )
 
         # Feature decoders
         self.feature_decoders = MultiModalFeatureDecoders(config)
@@ -171,11 +173,20 @@ class MultiModalGNNWithDecoders(nn.Module):
             hidden_size=config["model"]["encoder"]["hidden_size"],
         )
 
-        # Consistency loss
+        # Consistency loss (Stage B)
         self.consistency_loss = ConsistencyLoss(distance_metric="l2", normalize=True)
 
-        # Entropy regularization
+        # Entropy regularization (Stage B)
         self.entropy_reg = EntropyRegularization()
+
+        # Projection training loss (Stage A)
+        self.projection_loss = ProjectionReconstructionLoss(config, decoder_type="simple")
+
+        # Projection regularization (Stage A)
+        self.projection_reg = ProjectionRegularizationLoss(
+            reg_type="diversity",
+            weight=config["losses"].get("lambda_proj_reg", 0.01)
+        )
 
         self.config = config
 
@@ -229,6 +240,22 @@ class MultiModalGNNWithDecoders(nn.Module):
             losses["edge_total"] = edge_loss * self.config["losses"]["lambda_edge"]
             losses["edge_detail"] = edge_losses_detail
 
+            # Stage A specific losses: Projection training
+            if self.model.training_stage == "A":
+                # Projection reconstruction loss
+                # This ensures projections learn meaningful representations in Stage A
+                proj_loss, proj_detail = self.projection_loss(
+                    output["modality_embeddings"],
+                    original
+                )
+                losses["projection"] = proj_loss * self.config["losses"].get("lambda_projection", 0.1)
+                losses["projection_detail"] = proj_detail
+
+                # Projection regularization (diversity)
+                # Encourages mrna and cnv projections to extract different features
+                proj_reg = self.projection_reg(output["modality_embeddings"])
+                losses["projection_reg"] = proj_reg
+
             # Stage B specific losses
             if self.model.training_stage == "B":
                 # Consistency loss
@@ -246,7 +273,13 @@ class MultiModalGNNWithDecoders(nn.Module):
             # Total loss
             total_loss = losses["recon_total"] + losses["edge_total"]
 
+            if self.model.training_stage == "A":
+                # Add projection training losses in Stage A
+                total_loss += losses.get("projection", 0)
+                total_loss += losses.get("projection_reg", 0)
+
             if self.model.training_stage == "B":
+                # Add consistency and entropy losses in Stage B
                 total_loss += losses.get("consistency", 0)
                 total_loss += losses.get("entropy", 0)
 
