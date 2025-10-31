@@ -1,0 +1,168 @@
+%PDF-1.4
+%����
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 100 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 3316 >>
+stream
+BT
+/F1 11 Tf
+1 0 0 1 50 742 Tm
+(Mục Tiêu) Tj
+0 -14 Td
+(- Học patient-level embeddings từ 4 omics \\(mRNA, CNV, CpG, miRNA\\) trên đồ thị dị thể) Tj
+0 -14 Td
+(  sinh học.) Tj
+0 -14 Td
+(- Kết hợp đa mô thức theo bệnh nhân bằng attention để dùng cho downstream tasks) Tj
+0 -14 Td
+(  \\(clustering, survival, v.v.\\).) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Dữ Liệu & Đồ Thị) Tj
+0 -14 Td
+(- Node types: gene, cpg, mirna; Edge types: cpg→gene \\(maps_to\\), mirna→gene \\(targets\\),) Tj
+0 -14 Td
+(  tùy chọn gene↔gene \\(PPI\\).) Tj
+0 -14 Td
+(- Mỗi bệnh nhân = 1 HeteroData graph; topology cố định, node features theo bệnh nhân.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Kiến Trúc) Tj
+0 -14 Td
+(- hetero‑GNN encoder → node embeddings h cho từng node type.) Tj
+0 -14 Td
+(- Projection + Pooling:) Tj
+0 -14 Td
+(- Gene: W_mrna, W_cnv → pool thành z_mrna, z_cnv.) Tj
+0 -14 Td
+(- CpG/miRNA: pool trực tiếp → z_cpg, z_mirna.) Tj
+0 -14 Td
+(- Fusion:) Tj
+0 -14 Td
+(- Stage A: mean of modality embeddings \\(chỉ để export, không đi vào loss\\).) Tj
+0 -14 Td
+(- Stage B: attention fusion → fused embedding h_fused.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Stage A \\(Pretraining\\)) Tj
+0 -14 Td
+(- Feature reconstruction \\(L_recon\\): decoders tái tạo lại mRNA, CNV, CpG, miRNA từ h.) Tj
+0 -14 Td
+(- Edge reconstruction \\(L_edge\\): link prediction cho các quan hệ kiểu \\(cpg, maps_to,) Tj
+0 -14 Td
+(  gene\\), \\(mirna, targets, gene\\), \\(ppi\\).) Tj
+0 -14 Td
+(- Projection loss \\(L_proj, chỉ mRNA/CNV\\): z_mrna/z_cnv dự đoán per‑patient mean; thêm) Tj
+0 -14 Td
+(  projection diversity \\(cosine\\) để tránh z_mrna ≈ z_cnv.) Tj
+0 -14 Td
+(- Mục tiêu: L_A = L_recon + λ_edge·L_edge + λ_projection·L_proj +) Tj
+0 -14 Td
+(  λ_proj_reg·L_diversity.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Stage B \\(Fusion & Finetuning\\)) Tj
+0 -14 Td
+(- Khởi tạo bằng weights của Stage A, re‑encode lại graphs mỗi batch.) Tj
+0 -14 Td
+(- Attention fusion trên {z_mrna, z_cnv, z_cpg, z_mirna} → h_fused.) Tj
+0 -14 Td
+(- Consistency loss \\(L_cons\\): kéo h_fused gần từng modality \\(thường là normalized L2\\).) Tj
+0 -14 Td
+(- Entropy regularization \\(L_ent\\): maximize entropy của attention weights để tránh) Tj
+0 -14 Td
+(  single‑modality collapse.) Tj
+0 -14 Td
+(- Tiếp tục L_recon và L_edge làm anchor nội dung + cấu trúc.) Tj
+0 -14 Td
+(- Mục tiêu: L_B = L_recon + λ_edge·L_edge + λ_cons·L_cons + λ_ent·L_ent. Không dùng) Tj
+0 -14 Td
+(  projection losses ở Stage B.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Gradient Flow \\(quan trọng\\)) Tj
+0 -14 Td
+(- Stage A: L_recon/L_edge → encoder; L_proj/L_div → projections \\(W_mrna/W_cnv\\) →) Tj
+0 -14 Td
+(  encoder.) Tj
+0 -14 Td
+(- Stage B: L_cons → attention → z_m → projections → encoder; L_ent → attention;) Tj
+0 -14 Td
+(  L_recon/L_edge vẫn cập nhật encoder/decoders.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Cân Bằng Modality \\(CpG 450k vs miRNA 1k\\)) Tj
+0 -14 Td
+(- Mean pooling và normalized consistency giảm bias do số lượng feature.) Tj
+0 -14 Td
+(- Entropy regularization chống attention quá “peaky”.) Tj
+0 -14 Td
+(- Thực hành: chuẩn hóa per‑modality, tune λ_cons/λ_ent và attention temperature.) Tj
+0 -14 Td
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 100 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 540 >>
+stream
+BT
+/F1 11 Tf
+1 0 0 1 50 742 Tm
+() Tj
+0 -14 Td
+(Knobs Quan Trọng \\(config\\)) Tj
+0 -14 Td
+(- Structure: λ_edge.) Tj
+0 -14 Td
+(- Stage A: λ_projection, λ_proj_reg.) Tj
+0 -14 Td
+(- Stage B: λ_cons, λ_ent, attention temperature.) Tj
+0 -14 Td
+(- Per‑modality recon: λ_recon_mrna/cnv/cpg/mirna.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Outputs) Tj
+0 -14 Td
+(- modality_embeddings \\(z_mrna, z_cnv, z_cpg, z_mirna\\), fused embedding \\(Stage B\\),) Tj
+0 -14 Td
+(  attention weights, và per‑term losses để theo dõi/tối ưu.) Tj
+0 -14 Td
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000127 00000 n 
+0000000255 00000 n 
+0000003623 00000 n 
+0000003751 00000 n 
+0000004342 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+4412
+%%EOF

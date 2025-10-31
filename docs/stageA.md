@@ -1,0 +1,63 @@
+graph TD
+    %% === Inputs ===
+    CpG["CpG (methylation)"]
+    miRNA["miRNA (expression)"]
+    Gene["Gene (mRNA + CNV)"]
+
+    %% === Biological relations (shared across patients) ===
+    CpG -->|maps_to| Gene
+    miRNA -->|targets| Gene
+
+    %% === Heterogeneous GNN encoder (uses ALL node features) ===
+    CpG -->|features| EncMod["hetero-GNN encoder"]
+    miRNA -->|features| EncMod
+    Gene -->|features| EncMod
+    EncMod -->|message passing| Enc["Node Embeddings (h)"]
+
+    %% Split node-type embeddings for clarity (dict of embeddings)
+    Enc --> hGene["h_gene"]
+    Enc --> hCpG["h_cpg"]
+    Enc --> hMiRNA["h_mirna"]
+
+    %% === Modality embeddings from node embeddings (defined in Stage A) ===
+
+    %% === Stage A: Pretraining (no attention) ===
+    subgraph StageA["Stage A: Pretraining"]
+        %% Modality embeddings (computed in Stage A forward)
+        hGene -->|"W_mrna + Pool"| zMRNA["z_mRNA"]
+        hGene -->|"W_cnv + Pool"| zCNV["z_CNV"]
+        %% hCpG  -->|"Pool"| zCpG["z_CpG"]
+        %% hMiRNA -->|"Pool"| zMiRNA["z_miRNA"]
+        %% Fused mean (for API/exports; not used in loss)
+        %% zMRNA --> MeanA["Mean Fusion"]
+        %% zCNV --> MeanA
+        %% zCpG --> MeanA
+        %% zMiRNA --> MeanA
+        %% MeanA --> hFusedA["h_fused (mean)"]
+
+        %% Feature reconstruction per node type
+        hGene --> DecMRNA["Decode → mRNA features"]
+        hGene --> DecCNV["Decode → CNV features"]
+        hCpG  --> DecCpG["Decode → CpG features"]
+        hMiRNA --> DecMiRNA["Decode → miRNA features"]
+
+        %% Edge reconstruction uses all node embeddings
+        hGene --> EdgeA["Edge Reconstruction"]
+        hCpG  --> EdgeA
+        hMiRNA --> EdgeA
+        zMRNA --> ProjA["Projection Loss (mRNA)"]
+        zCNV --> ProjA2["Projection Loss (CNV)"]
+        %% Optional diversity regularizer (mRNA vs CNV)
+        zMRNA -.-> DivA["Projection Diversity (cosine)"]
+        zCNV -.-> DivA
+
+        %% Aggregate to L_A
+        DecMRNA --> LA["L_A"]
+        DecCNV  --> LA
+        DecCpG  --> LA
+        DecMiRNA --> LA
+        EdgeA   --> LA
+        ProjA --> LA
+        ProjA2 --> LA
+        DivA -.-> LA
+    end

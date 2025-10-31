@@ -1,0 +1,67 @@
+graph TD
+    %% === Inputs ===
+    CpG["CpG (methylation)"]
+    miRNA["miRNA (expression)"]
+    Gene["Gene (mRNA + CNV)"]
+
+    %% === Biological relations (shared across patients) ===
+    CpG -->|maps_to| Gene
+    miRNA -->|targets| Gene
+
+    %% === Heterogeneous GNN encoder (reuses Stage‑A weights) ===
+    CpG -->|features| EncMod["hetero-GNN encoder"]
+    miRNA -->|features| EncMod
+    Gene -->|features| EncMod
+    EncMod -->|message passing| Enc["Node Embeddings (h)"]
+
+    %% Split node-type embeddings for clarity
+    Enc --> hGene["h_gene"]
+    Enc --> hCpG["h_cpg"]
+    Enc --> hMiRNA["h_mirna"]
+
+    %% === Stage B: Fusion & Finetuning ===
+    subgraph StageB["Stage B: Fusion & Finetuning"]
+        %% Modality embeddings (computed in Stage B forward)
+        hGene -->|"W_mrna + Pool"| zMRNA["z_mRNA"]
+        hGene -->|"W_cnv + Pool"| zCNV["z_CNV"]
+        hCpG  -->|"Pool"| zCpG["z_CpG"]
+        hMiRNA -->|"Pool"| zMiRNA["z_miRNA"]
+
+        %% Attention fusion
+        zMRNA --> Attn["Attention Fusion"]
+        zCNV  --> Attn
+        zCpG  --> Attn
+        zMiRNA --> Attn
+        Attn --> hFusedB["h_fused (attention)"]
+        Attn --> Alpha["Attention Weights (α)"]
+
+        %% Fusion-specific losses
+        hFusedB --> ConsB["Consistency (fused vs modalities)"]
+        zMRNA --> ConsB
+        zCNV  --> ConsB
+        zCpG  --> ConsB
+        zMiRNA --> ConsB
+        Alpha --> EntB["Entropy (maximize H(α))"]
+
+        %% Reconstruction/edge remain active (anchor structure/content)
+        hGene  --> DecMRNA["Decode → mRNA features"]
+        hGene  --> DecCNV["Decode → CNV features"]
+        hCpG   --> DecCpG["Decode → CpG features"]
+        hMiRNA --> DecMiRNA["Decode → miRNA features"]
+        hGene  --> EdgeB["Edge Reconstruction"]
+        hCpG   --> EdgeB
+        hMiRNA --> EdgeB
+
+        %% Aggregate to L_B
+        ConsB   --> LB["L_B"]
+        EntB    --> LB
+        DecMRNA --> LB
+        DecCNV  --> LB
+        DecCpG  --> LB
+        DecMiRNA --> LB
+        EdgeB   --> LB
+    end
+
+    %% Output
+    hFusedB --> Output["Patient-level Fused Embedding"]
+
